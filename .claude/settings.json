@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/log-set.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/log-step.sh\""
           }
         ]
       }

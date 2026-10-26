@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Git post-commit hook: append the commit's hash and subject to BUILD_LOG.md
+# so every commit (yours or Claude's) is logged.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+LOG_FILE="BUILD_LOG.md"
+
+[ -f "$LOG_FILE" ] || printf '# Build Log\n\n' > "$LOG_FILE"
+printf -- '- %s — commit %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(git log -1 --format='%h %s')" >> "$LOG_FILE"
