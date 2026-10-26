@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ai-workspace</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+    input { flex: 1; padding: 0.4rem; }
+    button { padding: 0.4rem 1rem; }
+    #error { color: #b00020; min-height: 1.2em; margin: 0 0 1rem; }
+    ul { list-style: none; padding: 0; }
+    li { border: 1px solid #ddd; border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; }
+    pre { white-space: pre-wrap; background: #f6f6f6; padding: 0.5rem; margin: 0.5rem 0 0; }
+  </style>
+</head>
+<body>
+  <h1>Agents</h1>
+
+  <form id="create-form">
+    <input id="name" placeholder="new-agent-name" autocomplete="off" required>
+    <button type="submit">Create</button>
+  </form>
+  <p id="error"></p>
+
+  <p id="empty" hidden>No agents yet.</p>
+  <ul id="agents"></ul>
+
+  <script>
+    const list = document.getElementById("agents");
+    const empty = document.getElementById("empty");
+    const error = document.getElementById("error");
+
+    function addAgent(agent) {
+      const li = document.createElement("li");
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      const pre = document.createElement("pre");
+      summary.textContent = agent.name;
+      pre.textContent = agent.instructions;
+      details.append(summary, pre);
+      li.append(details);
+      list.append(li);
+      empty.hidden = true;
+    }
+
+    async function loadAgents() {
+      const res = await fetch("/agents");
+      const agents = await res.json();
+      list.replaceChildren();
+      agents.forEach(addAgent);
+      empty.hidden = agents.length > 0;
+    }
+
+    document.getElementById("create-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = document.getElementById("name");
+      error.textContent = "";
+      const res = await fetch("/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: input.value.trim() }),
+      });
+      if (res.status === 201) {
+        input.value = "";
+        await loadAgents();
+      } else if (res.status === 409) {
+        error.textContent = "An agent with that name already exists.";
+      } else if (res.status === 422) {
+        error.textContent = "Use lowercase letters, numbers and single dashes (e.g. code-reviewer), up to 64 characters.";
+      } else {
+        error.textContent = `Something went wrong (HTTP ${res.status}).`;
+      }
+    });
+
+    loadAgents();
+  </script>
+</body>
+</html>
