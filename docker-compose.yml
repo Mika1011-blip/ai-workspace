@@ -1,0 +1,8 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Agents live on your disk, so they survive container rebuilds.
+      - ./agents:/app/agents
