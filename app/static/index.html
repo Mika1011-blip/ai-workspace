@@ -13,10 +13,14 @@
     ul { list-style: none; padding: 0; }
     li { border: 1px solid #ddd; border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; }
     pre { white-space: pre-wrap; background: #f6f6f6; padding: 0.5rem; margin: 0.5rem 0 0; }
+    textarea { width: 100%; min-height: 8rem; font-family: inherit; box-sizing: border-box; margin-top: 0.5rem; }
+    .edit-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+    .edit-actions[hidden] { display: none; }
+    .save-error { color: #b00020; min-height: 1.2em; margin: 0.25rem 0 0; }
   </style>
 </head>
 <body>
-  <h1>Agents</h1>
+  <h1>Agents <span id="count">(0)</span></h1>
 
   <form id="create-form">
     <input id="name" placeholder="new-agent-name" autocomplete="off" required>
@@ -31,15 +35,72 @@
     const list = document.getElementById("agents");
     const empty = document.getElementById("empty");
     const error = document.getElementById("error");
+    const count = document.getElementById("count");
 
     function addAgent(agent) {
       const li = document.createElement("li");
       const details = document.createElement("details");
       const summary = document.createElement("summary");
       const pre = document.createElement("pre");
+      const editButton = document.createElement("button");
+      const textarea = document.createElement("textarea");
+      const actions = document.createElement("div");
+      const saveButton = document.createElement("button");
+      const cancelButton = document.createElement("button");
+      const saveError = document.createElement("p");
+
       summary.textContent = agent.name;
       pre.textContent = agent.instructions;
-      details.append(summary, pre);
+      editButton.textContent = "Edit";
+      textarea.hidden = true;
+      textarea.value = agent.instructions;
+      saveButton.textContent = "Save";
+      cancelButton.textContent = "Cancel";
+      actions.className = "edit-actions";
+      actions.hidden = true;
+      actions.append(saveButton, cancelButton);
+      saveError.className = "save-error";
+
+      editButton.addEventListener("click", () => {
+        pre.hidden = true;
+        editButton.hidden = true;
+        textarea.hidden = false;
+        actions.hidden = false;
+        textarea.focus();
+      });
+
+      cancelButton.addEventListener("click", () => {
+        textarea.value = agent.instructions;
+        saveError.textContent = "";
+        pre.hidden = false;
+        editButton.hidden = false;
+        textarea.hidden = true;
+        actions.hidden = true;
+      });
+
+      saveButton.addEventListener("click", async () => {
+        saveError.textContent = "";
+        const res = await fetch(`/agents/${agent.name}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ instructions: textarea.value }),
+        });
+        if (res.status === 200) {
+          const updated = await res.json();
+          agent.instructions = updated.instructions;
+          pre.textContent = updated.instructions;
+          pre.hidden = false;
+          editButton.hidden = false;
+          textarea.hidden = true;
+          actions.hidden = true;
+        } else if (res.status === 404) {
+          saveError.textContent = "This agent no longer exists.";
+        } else {
+          saveError.textContent = `Something went wrong (HTTP ${res.status}).`;
+        }
+      });
+
+      details.append(summary, pre, editButton, textarea, actions, saveError);
       li.append(details);
       list.append(li);
       empty.hidden = true;
@@ -51,6 +112,7 @@
       list.replaceChildren();
       agents.forEach(addAgent);
       empty.hidden = agents.length > 0;
+      count.textContent = `(${agents.length})`;
     }
 
     document.getElementById("create-form").addEventListener("submit", async (event) => {
