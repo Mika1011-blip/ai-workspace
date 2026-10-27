@@ -26,6 +26,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import textwrap
 from pathlib import Path
 
 PROJECT = Path("/project")
@@ -42,15 +43,31 @@ def run(argv: list[str], log) -> None:
         raise RuntimeError(f"command failed ({result.returncode}): {argv[0]} ...")
 
 
-def caption_filter(text: str, height: int, tmp: Path, index: int) -> str:
+def caption_fontsize(height: int) -> int:
+    return max(24, height // 26)
+
+
+def wrap_caption(text: str, width: int, fontsize: int) -> str:
+    """Break a caption into lines that fit 90 % of the frame width.
+
+    drawtext never wraps: the first real render cut "Why does your cat purr?"
+    off at both edges. DejaVu Sans Bold averages about 0.6 em per character.
+    """
+    per_line = max(8, int(width * 0.9 / (fontsize * 0.6)))
+    return "\n".join(textwrap.wrap(text, per_line) or [""])
+
+
+def caption_filter(text: str, width: int, height: int, tmp: Path, index: int) -> str:
     if not text:
         return "null"
+    fontsize = caption_fontsize(height)
     # ffmpeg's filter syntax can't escape every character inside text='...'
     # (an apostrophe breaks it); a textfile has no such problem.
     caption = tmp / f"caption-{index:02d}.txt"
-    caption.write_text(text, encoding="utf-8")
+    caption.write_text(wrap_caption(text, width, fontsize), encoding="utf-8")
     return (
-        f"drawtext=fontfile={FONT}:textfile={caption}:fontcolor=white:fontsize={max(24, height // 22)}"
+        f"drawtext=fontfile={FONT}:textfile={caption}:fontcolor=white:fontsize={fontsize}"
+        f":line_spacing={fontsize // 5}:text_align=C"
         f":box=1:boxcolor=black@0.55:boxborderw=18:x=(w-text_w)/2:y=h-h/5-text_h"
     )
 
@@ -67,7 +84,7 @@ def render(log) -> None:
         for i, shot in enumerate(shots):
             duration = float(shot.get("duration", 3))
             out = tmp / f"shot-{i:02d}.mp4"
-            vf = f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,{caption_filter(shot.get('text', ''), height, tmp, i)},format=yuv420p"
+            vf = f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,{caption_filter(shot.get('text', ''), width, height, tmp, i)},format=yuv420p"
             if shot.get("image"):
                 src = ["-loop", "1", "-t", str(duration), "-i", str(ARTIFACTS / shot["image"])]
             else:

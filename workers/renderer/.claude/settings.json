@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Edit",
+      "Write",
+      "mcp__ai-workspace__*"
+    ],
+    "deny": [
+      "SendMessage",
+      "ListAgents",
+      "Bash",
+      "Edit(//C:/Projects/learning/claude-mastery/ai-workspace/ai-workspace/workers/_shared/**)",
+      "Write(//C:/Projects/learning/claude-mastery/ai-workspace/ai-workspace/workers/_shared/**)"
+    ]
+  },
+  "crossSessionInbound": "refuse",
+  "worktree": {
+    "bgIsolation": "none"
+  }
+}
