@@ -577,3 +577,46 @@ def test_send_to_session_raises_on_bad_token(monkeypatch):
 
     with pytest.raises(httpx.HTTPStatusError):
         ws.send_to_session("sess-2", "hi")
+
+
+# --- toolkits ---------------------------------------------------------------------
+
+
+def test_get_catalog_and_toolkit_are_plain_gets(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ws.httpx, "get", lambda url, **kw: calls.append(url) or FakeResponse(200, {"tools": []}))
+
+    assert ws.get_catalog() == {"tools": []}
+    assert ws.get_toolkit("researcher") == {"tools": []}
+    assert calls == [f"{ws.API_BASE_URL}/catalog", f"{ws.API_BASE_URL}/workers/researcher/toolkit"]
+
+
+def test_set_toolkit_puts_every_list_defaulting_to_empty(monkeypatch):
+    calls = []
+
+    def fake_put(url, json):
+        calls.append((url, json))
+        return FakeResponse(200, {"tools": ["WebFetch"], "mcp_servers": [], "read_from": [], "skills": ["social-short"]})
+
+    monkeypatch.setattr(ws.httpx, "put", fake_put)
+
+    result = ws.set_toolkit("researcher", tools=["WebFetch"], skills=["social-short"])
+
+    assert calls == [(f"{ws.API_BASE_URL}/workers/researcher/toolkit",
+                      {"tools": ["WebFetch"], "mcp_servers": [], "read_from": [], "skills": ["social-short"]})]
+    assert result["skills"] == ["social-short"]
+
+
+def test_set_toolkit_raises_on_a_name_outside_the_catalog(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "put", lambda url, json: FakeResponse(400))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.set_toolkit("researcher", tools=["Bash"])
+
+
+def test_remove_skill_deletes_and_returns_the_toolkit(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ws.httpx, "delete", lambda url: calls.append(url) or FakeResponse(200, {"skills": []}))
+
+    assert ws.remove_skill("researcher", "social-short") == {"skills": []}
+    assert calls == [f"{ws.API_BASE_URL}/workers/researcher/toolkit/skills/social-short"]

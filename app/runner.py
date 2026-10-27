@@ -31,6 +31,9 @@ class SpawnSpec:
     tools: tuple[str, ...] = ()
     read_from: tuple[Path, ...] = ()
     write_to: tuple[Path, ...] = ()
+    # Extra MCP servers from the worker's toolkit, name -> definition
+    # (command/args/env or url), already resolved from the catalog.
+    mcp_servers: dict = field(default_factory=dict)
 
 
 @dataclass

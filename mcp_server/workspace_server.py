@@ -406,3 +406,65 @@ def delete_project(slug: str, confirm: bool = False) -> dict:
 
 if __name__ == "__main__":
     mcp.run()
+
+
+# --- toolkits (docs/vision-gap.md §2.3) ----------------------------------------
+
+
+@mcp.tool
+def get_catalog() -> dict:
+    """What may be attached to a worker on this host: the built-in web tools,
+    the MCP servers vetted in catalog.json, and the skills in
+    worker_templates/skills/. Names and descriptions only. Calls GET /catalog.
+    Nothing in the catalog is attached to anyone until set_toolkit says so.
+    """
+    response = httpx.get(f"{API_BASE_URL}/catalog")
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def get_toolkit(worker: str) -> dict:
+    """A worker's persistent toolkit: tools, MCP servers and read-only folders
+    applied on every spawn, and the skills installed in its .claude/skills/.
+    Calls GET /workers/{worker}/toolkit. Raises an error if the worker is
+    unknown.
+    """
+    response = httpx.get(f"{API_BASE_URL}/workers/{worker}/toolkit")
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def set_toolkit(
+    worker: str,
+    tools: list[str] | None = None,
+    mcp_servers: list[str] | None = None,
+    read_from: list[str] | None = None,
+    skills: list[str] | None = None,
+) -> dict:
+    """Attach exactly these catalog items to a worker, for every future spawn:
+    `tools` (WebSearch/WebFetch), `mcp_servers` (names from get_catalog),
+    `read_from` (repo-relative folders under workers/ or projects/, read-only)
+    and `skills` (installed from the catalog; already-installed skills stay --
+    use remove_skill to take one away). Calls PUT /workers/{worker}/toolkit
+    and returns the resulting toolkit. Raises an error (400) if a name is not
+    in the catalog or a folder is not grantable, 404 if the worker is unknown.
+    """
+    response = httpx.put(
+        f"{API_BASE_URL}/workers/{worker}/toolkit",
+        json={"tools": tools or [], "mcp_servers": mcp_servers or [], "read_from": read_from or [], "skills": skills or []},
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def remove_skill(worker: str, skill: str) -> dict:
+    """Uninstall one skill from a worker (deletes workers/{worker}/.claude/skills/{skill}/).
+    Calls DELETE /workers/{worker}/toolkit/skills/{skill} and returns the
+    toolkit afterwards. Raises an error if the worker or the skill is unknown.
+    """
+    response = httpx.delete(f"{API_BASE_URL}/workers/{worker}/toolkit/skills/{skill}")
+    response.raise_for_status()
+    return response.json()

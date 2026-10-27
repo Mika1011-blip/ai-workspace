@@ -1,0 +1,4 @@
+{
+  "_about": "What app workers MAY be granted on this host (docs/vision-gap.md §2.3). Nothing here is attached by default: attach with PUT /workers/<name>/toolkit or the set_toolkit MCP tool. Built-in tools (WebSearch, WebFetch) and skills (worker_templates/skills/) are listed automatically; MCP servers are declared here, by you or the crew, after you have vetted them.",
+  "mcp_servers": {}
+}
