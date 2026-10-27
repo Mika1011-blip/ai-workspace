@@ -3,6 +3,8 @@ import os
 import re
 import shutil
 import subprocess
+import sys
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -121,20 +123,77 @@ def claude_cli() -> str:
     return path
 
 
-def default_spawn_fn(agent: str, task: str, agent_folder: Path) -> str:
-    """Launch a real background Claude Code session scoped to `agent_folder`,
-    mirroring the crew's `claude --bg --name <agent> "..."`, and return the
-    session id Claude Code prints."""
-    result = subprocess.run(
-        [claude_cli(), "--bg", "--name", agent, f"Read CLAUDE.md, then: {task}"],
-        cwd=agent_folder,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    parts = [p.strip() for p in result.stdout.strip().split("·")]
+MCP_SERVER_NAME = "agent-workspace"
+MCP_SERVER_PATH = Path(__file__).resolve().parents[1] / "mcp_server" / "workspace_server.py"
+
+# The wall, as the API enforces it on every spawned app session. Mirrors
+# docs/comms-protocol.md §5: Claude Code's own messaging is closed, and the
+# file tools can't touch anything but the agent's folder and agents/_shared.
+LOCKDOWN_SETTINGS = {
+    "permissions": {
+        "allow": ["Read", "Glob", "Grep", f"mcp__{MCP_SERVER_NAME}__*"],
+        "deny": ["SendMessage", "ListAgents", "Edit", "Write", "Bash"],
+    },
+    "crossSessionInbound": "refuse",
+}
+
+
+def lockdown_mcp_config(session_id: str, api_url: str) -> dict:
+    return {
+        "mcpServers": {
+            MCP_SERVER_NAME: {
+                "type": "stdio",
+                "command": sys.executable,
+                "args": [str(MCP_SERVER_PATH)],
+                "env": {"SESSION_ID": session_id, "WORKSPACE_API_URL": api_url},
+            }
+        }
+    }
+
+
+def spawn_argv(agent: str, task: str, session_uuid: str, shared_dir: Path, api_url: str) -> list[str]:
+    """The exact command for one locked-down app session.
+
+    --restricted ignores user/project/local settings and confines the file
+    tools to cwd plus --add-dir; --strict-mcp-config keeps every MCP server
+    but ours out; dontAsk turns anything not allow-listed into a refusal,
+    since a background session has nobody to answer a prompt.
+    """
+    return [
+        claude_cli(),
+        "--bg",
+        "--restricted",
+        "--strict-mcp-config",
+        "--permission-mode", "dontAsk",
+        "--session-id", session_uuid,
+        "--name", agent,
+        "--settings", json.dumps(LOCKDOWN_SETTINGS),
+        "--mcp-config", json.dumps(lockdown_mcp_config(session_uuid[:8], api_url)),
+        "--add-dir", str(shared_dir),
+        f"Read CLAUDE.md and ../_shared/COMMS.md, then: {task}",
+    ]
+
+
+def write_lockdown_settings(agent_folder: Path) -> None:
+    """The spec's per-agent settings.json, for anyone running `claude` in the
+    folder by hand. Never overwrites a hand-curated one (e.g. app-master)."""
+    settings = agent_folder / ".claude" / "settings.json"
+    if settings.exists():
+        return
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text(json.dumps(LOCKDOWN_SETTINGS, indent=2) + "\n", encoding="utf-8")
+
+
+def default_spawn_fn(argv: list[str], cwd: Path) -> str:
+    """Run the spawn command and return what Claude Code printed."""
+    result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=True)
+    return result.stdout
+
+
+def parse_spawned_id(stdout: str) -> str:
+    parts = [p.strip() for p in stdout.strip().split("·")]
     if len(parts) < 2 or not parts[1]:
-        raise RuntimeError(f"could not parse a session id from: {result.stdout!r}")
+        raise RuntimeError(f"could not parse a session id from: {stdout!r}")
     return parts[1]
 
 
@@ -161,7 +220,8 @@ def create_app(
     templates_dir: Path | str | None = None,
     sessions_db: Path | str | None = None,
     messages_log: Path | str | None = None,
-    spawn_fn: Callable[[str, str, Path], str] | None = None,
+    api_url: str | None = None,
+    spawn_fn: Callable[[list[str], Path], str] | None = None,
     spawn_enabled: bool | None = None,
     stop_fn: Callable[[str], None] | None = None,
     running_ids_fn: Callable[[], set[str] | None] | None = None,
@@ -173,6 +233,8 @@ def create_app(
     sessions_store.init_db(sessions_db_path)
     messages_log_path = Path(messages_log or os.environ.get("MESSAGES_LOG", "runs/messages.jsonl"))
     messages_log_path.parent.mkdir(parents=True, exist_ok=True)
+    api_url = api_url or os.environ.get("WORKSPACE_API_URL", "http://localhost:8000")
+    shared_dir = agents_path / "_shared"
     spawn = spawn_fn or default_spawn_fn
     stop = stop_fn or default_stop_fn
     running_ids = running_ids_fn or default_running_ids_fn
@@ -312,7 +374,14 @@ def create_app(
         agent_folder = agents_path / body.agent
         if not (agent_folder / "CLAUDE.md").is_file():
             raise HTTPException(status_code=404, detail=f"Agent '{body.agent}' not found")
-        session_id = spawn(body.agent, body.task, agent_folder)
+        session_uuid = str(uuid.uuid4())
+        session_id = session_uuid[:8]
+        shared_dir.mkdir(exist_ok=True)
+        write_lockdown_settings(agent_folder)
+        argv = spawn_argv(body.agent, body.task, session_uuid, shared_dir, api_url)
+        printed_id = parse_spawned_id(spawn(argv, agent_folder))
+        if printed_id != session_id:
+            raise RuntimeError(f"claude started {printed_id!r}, expected {session_id!r}")
         started_at = datetime.now(timezone.utc).isoformat()
         sessions_store.insert_session(
             sessions_db_path, session_id, body.agent, body.spawned_by, started_at, body.may_talk_to

@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -6,13 +7,16 @@ from fastapi.testclient import TestClient
 from app import sessions_store
 from app.main import create_app
 
-NEXT_ID = {"n": 0}
+SPAWNED = []
 STOPPED = []
 
 
-def fake_spawn_fn(agent, task, agent_folder):
-    NEXT_ID["n"] += 1
-    return f"sess-{NEXT_ID['n']}"
+def fake_spawn_fn(argv, cwd):
+    # Stands in for `claude --bg ...`: records the command, prints what the
+    # real CLI prints (the id is the first 8 chars of --session-id).
+    SPAWNED.append((argv, cwd))
+    session_uuid = argv[argv.index("--session-id") + 1]
+    return f"backgrounded · {session_uuid[:8]} · {argv[argv.index('--name') + 1]}\n"
 
 
 def fake_stop_fn(session_id):
@@ -21,7 +25,7 @@ def fake_stop_fn(session_id):
 
 @pytest.fixture(autouse=True)
 def _reset_fakes():
-    NEXT_ID["n"] = 0
+    SPAWNED.clear()
     STOPPED.clear()
 
 
@@ -80,7 +84,8 @@ class TestSpawnSession:
 
         assert res.status_code == 201
         body = res.json()
-        assert body["session_id"] == "sess-1"
+        argv, cwd = SPAWNED[0]
+        assert body["session_id"] == argv[argv.index("--session-id") + 1][:8]
         assert body["agent"] == "researcher"
         assert body["status"] == "live"
         assert body["ended_at"] is None
@@ -108,7 +113,92 @@ class TestSpawnSession:
 
         assert res.status_code == 503
         assert res.json()["detail"] == "spawning_disabled"
-        assert sessions_store.get_session(sessions_db, "sess-1") is None
+        assert SPAWNED == []
+
+
+class TestSpawnLockdown:
+    """The wall (docs/comms-protocol.md §5), as the API puts it on the
+    command line of every app session it starts."""
+
+    def _spawn_argv(self, client, agents_dir):
+        create_agent(client, "researcher")
+        res = spawn(client, "researcher", task="summarize")
+        assert res.status_code == 201
+        argv, cwd = SPAWNED[0]
+        return res.json()["session_id"], argv, cwd
+
+    def test_runs_in_the_agents_own_folder(self, client, agents_dir):
+        _, argv, cwd = self._spawn_argv(client, agents_dir)
+
+        assert cwd == agents_dir / "researcher"
+        assert argv[-1] == "Read CLAUDE.md and ../_shared/COMMS.md, then: summarize"
+
+    def test_restricted_strict_mcp_and_no_prompts(self, client, agents_dir):
+        _, argv, _ = self._spawn_argv(client, agents_dir)
+
+        assert "--bg" in argv
+        assert "--restricted" in argv
+        assert "--strict-mcp-config" in argv
+        assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
+        assert "bypassPermissions" not in argv
+
+    def test_claude_code_messaging_is_closed(self, client, agents_dir):
+        _, argv, _ = self._spawn_argv(client, agents_dir)
+        settings = json.loads(argv[argv.index("--settings") + 1])
+
+        for tool in ("SendMessage", "ListAgents", "Edit", "Write", "Bash"):
+            assert tool in settings["permissions"]["deny"]
+        assert settings["crossSessionInbound"] == "refuse"
+        assert "mcp__agent-workspace__*" in settings["permissions"]["allow"]
+
+    def test_only_our_mcp_server_with_its_own_session_id(self, client, agents_dir):
+        sid, argv, _ = self._spawn_argv(client, agents_dir)
+        mcp = json.loads(argv[argv.index("--mcp-config") + 1])
+
+        assert list(mcp["mcpServers"]) == ["agent-workspace"]
+        server = mcp["mcpServers"]["agent-workspace"]
+        assert server["env"]["SESSION_ID"] == sid
+        assert server["env"]["WORKSPACE_API_URL"].startswith("http")
+        assert server["args"][0].endswith("workspace_server.py")
+
+    def test_shared_folder_is_the_only_extra_directory(self, client, agents_dir):
+        _, argv, _ = self._spawn_argv(client, agents_dir)
+
+        assert argv.count("--add-dir") == 1
+        assert argv[argv.index("--add-dir") + 1] == str(agents_dir / "_shared")
+        assert (agents_dir / "_shared").is_dir()
+
+    def test_writes_the_specs_settings_file_once(self, client, agents_dir):
+        self._spawn_argv(client, agents_dir)
+        settings_file = agents_dir / "researcher" / ".claude" / "settings.json"
+        assert settings_file.is_file()
+        written = json.loads(settings_file.read_text(encoding="utf-8"))
+        assert "SendMessage" in written["permissions"]["deny"]
+
+        # A hand-curated file (app-master's case) is never clobbered.
+        settings_file.write_text('{"permissions": {"allow": ["Task"]}}', encoding="utf-8")
+        spawn(client, "researcher")
+
+        assert json.loads(settings_file.read_text(encoding="utf-8")) == {
+            "permissions": {"allow": ["Task"]}
+        }
+
+    def test_refuses_if_claude_started_a_different_id(
+        self, agents_dir, templates_dir, sessions_db, messages_log
+    ):
+        def wrong_id_spawn(argv, cwd):
+            return "backgrounded · deadbeef · researcher\n"
+
+        client = TestClient(
+            make_app(agents_dir, templates_dir, sessions_db, messages_log, spawn_fn=wrong_id_spawn),
+            raise_server_exceptions=False,
+        )
+        create_agent(client, "researcher")
+
+        res = spawn(client, "researcher")
+
+        assert res.status_code == 500
+        assert sessions_store.get_session(sessions_db, "deadbeef") is None
 
 
 class TestListSessions:
