@@ -90,6 +90,27 @@ def mark_ended(db_path: Path, session_id: str, ended_at: str) -> None:
         conn.close()
 
 
+def reconcile(db_path: Path, running_ids: set[str], ended_at: str) -> list[str]:
+    """Mark every `live` session whose id is not actually running as ended.
+    Returns the ids that were closed."""
+    conn = sqlite3.connect(db_path)
+    try:
+        live = [
+            r[0]
+            for r in conn.execute("SELECT session_id FROM sessions WHERE status = 'live'").fetchall()
+        ]
+        stale = [sid for sid in live if sid not in running_ids]
+        for sid in stale:
+            conn.execute(
+                "UPDATE sessions SET status = 'ended', ended_at = ? WHERE session_id = ?",
+                (ended_at, sid),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return stale
+
+
 def list_reachable(db_path: Path, caller_id: str) -> list[dict] | None:
     """Every session `caller_id` may reach: itself, plus everything in its
     own `may_talk_to`. Returns None if `caller_id` is unknown."""

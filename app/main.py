@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -111,12 +112,21 @@ def parse_template(text: str) -> tuple[str, str]:
     return "", text
 
 
+def claude_cli() -> str:
+    # On Windows the npm shim is claude.cmd, which a bare "claude" argv
+    # can't resolve; which() finds it on every platform.
+    path = shutil.which("claude")
+    if path is None:
+        raise RuntimeError("claude CLI not found on PATH")
+    return path
+
+
 def default_spawn_fn(agent: str, task: str, agent_folder: Path) -> str:
     """Launch a real background Claude Code session scoped to `agent_folder`,
     mirroring the crew's `claude --bg --name <agent> "..."`, and return the
     session id Claude Code prints."""
     result = subprocess.run(
-        ["claude", "--bg", "--name", agent, f"Read CLAUDE.md, then: {task}"],
+        [claude_cli(), "--bg", "--name", agent, f"Read CLAUDE.md, then: {task}"],
         cwd=agent_folder,
         capture_output=True,
         text=True,
@@ -128,6 +138,24 @@ def default_spawn_fn(agent: str, task: str, agent_folder: Path) -> str:
     return parts[1]
 
 
+def default_stop_fn(session_id: str) -> None:
+    subprocess.run([claude_cli(), "stop", session_id], capture_output=True, text=True, check=True)
+
+
+def default_running_ids_fn() -> set[str] | None:
+    """Ids of the background sessions Claude Code says are running right now,
+    or None when that can't be determined (no CLI, command failed) -- None
+    means "unknown", never "nothing is running"."""
+    try:
+        result = subprocess.run(
+            [claude_cli(), "agents", "--json"], capture_output=True, text=True, check=True
+        )
+        entries = json.loads(result.stdout)
+    except (RuntimeError, OSError, subprocess.CalledProcessError, ValueError):
+        return None
+    return {e["id"] for e in entries if e.get("kind") == "background" and "id" in e}
+
+
 def create_app(
     agents_dir: Path | str | None = None,
     templates_dir: Path | str | None = None,
@@ -135,6 +163,8 @@ def create_app(
     messages_log: Path | str | None = None,
     spawn_fn: Callable[[str, str, Path], str] | None = None,
     spawn_enabled: bool | None = None,
+    stop_fn: Callable[[str], None] | None = None,
+    running_ids_fn: Callable[[], set[str] | None] | None = None,
 ) -> FastAPI:
     agents_path = Path(agents_dir or os.environ.get("AGENTS_DIR", "agents"))
     agents_path.mkdir(parents=True, exist_ok=True)
@@ -144,8 +174,25 @@ def create_app(
     messages_log_path = Path(messages_log or os.environ.get("MESSAGES_LOG", "runs/messages.jsonl"))
     messages_log_path.parent.mkdir(parents=True, exist_ok=True)
     spawn = spawn_fn or default_spawn_fn
+    stop = stop_fn or default_stop_fn
+    running_ids = running_ids_fn or default_running_ids_fn
     if spawn_enabled is None:
         spawn_enabled = os.environ.get("SPAWN_ENABLED", "true").lower() not in ("0", "false", "no")
+
+    # Session ids belong to one machine (docs/comms-protocol.md §4): when the
+    # server starts, close every row whose process is no longer running. Only
+    # where the claude CLI exists -- i.e. not inside Docker -- and only when
+    # the running set is actually known. Runs at startup, not import: the
+    # CLI call takes seconds and importing a module must not shell out.
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        if spawn_enabled:
+            ids = running_ids()
+            if ids is not None:
+                sessions_store.reconcile(
+                    sessions_db_path, ids, datetime.now(timezone.utc).isoformat()
+                )
+        yield
 
     def log_message(from_id: str, to_id: str, outcome: str) -> None:
         entry = {
@@ -157,7 +204,7 @@ def create_app(
         with messages_log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
 
-    app = FastAPI(title="ai-workspace")
+    app = FastAPI(title="ai-workspace", lifespan=lifespan)
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
@@ -299,8 +346,23 @@ def create_app(
         if body.from_ not in target["may_talk_to"]:
             log_message(body.from_, session_id, "not_allowed")
             raise HTTPException(status_code=403, detail="not_allowed")
-        log_message(body.from_, session_id, "delivered")
-        return {"delivered": True}
+        # Accepted and logged only: forwarding into the target session is
+        # not implemented yet, so this must not claim delivery.
+        log_message(body.from_, session_id, "accepted")
+        return {"accepted": True}
+
+    @app.post("/sessions/{session_id}/end")
+    def end_session(session_id: str) -> Session:
+        entry = sessions_store.get_session(sessions_db_path, session_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="unknown_session")
+        if entry["status"] != "live":
+            raise HTTPException(status_code=409, detail="session_ended")
+        if spawn_enabled:
+            stop(session_id)
+        ended_at = datetime.now(timezone.utc).isoformat()
+        sessions_store.mark_ended(sessions_db_path, session_id, ended_at)
+        return Session(**{**entry, "status": "ended", "ended_at": ended_at})
 
     return app
 
