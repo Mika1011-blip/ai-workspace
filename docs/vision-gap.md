@@ -63,7 +63,7 @@ grants are per spawn only; the persistent layer is the next management work.
 | | Decision |
 |---|---|
 | Media engines | **All code-made.** Claude for text; SVG/HTML→PNG for images; ffmpeg now, Remotion later for video. No generator APIs, no keys. |
-| Save all | **Zip download** in the gallery; `export_project` to a host folder stays. |
+| Save all | **Zip download** in the gallery (built: `GET /projects/{slug}/download`); `export_project` to a host folder stays. |
 | Workers persist? | **Yes, a fixed team.** The master creates one only when nobody fits, never retires one on its own. |
 | Chat with a worker during a project | **Yes** — the Chat tab, on top of message forwarding (SDK runner). The master is reachable when `may_talk_to` includes it. |
 | Budget | **None.** Media is $0 by construction; the records keep `cost_usd` so it can be seen, nothing enforces it. |

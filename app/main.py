@@ -16,7 +16,7 @@ from pathlib import Path, PurePath
 from typing import Callable
 
 from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app import activity, pipeline, projects, render, run_records, sdk_runner, sessions_store
@@ -1124,6 +1124,16 @@ def create_app(
         if not (folder / projects.PREVIEW).is_file():
             raise HTTPException(status_code=404, detail="no preview")
         return FileResponse(folder / projects.PREVIEW, media_type="image/jpeg")
+
+    @app.get("/projects/{slug}/download")
+    def download_project(slug: str) -> Response:
+        """The whole project as a zip, for the gallery's download button."""
+        folder, _ = project_or_404(slug)
+        return Response(
+            projects.zip_bytes(folder),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{slug}.zip"'},
+        )
 
     @app.post("/projects/{slug}/export")
     def export_project(body: ExportRequest, slug: str) -> dict:

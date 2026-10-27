@@ -137,6 +137,20 @@ def safe_artifact_path(project_dir: Path, rel: str) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def zip_bytes(project_dir: Path) -> bytes:
+    """The whole project folder as a zip (manifest, artifacts and sidecars,
+    decisions, final video, preview), paths relative to the slug folder."""
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(project_dir.rglob("*")):
+            if path.is_file():
+                archive.write(path, f"{project_dir.name}/{path.relative_to(project_dir).as_posix()}")
+    return buffer.getvalue()
+
+
 def export(project_dir: Path, dest_dir: Path) -> Path:
     """Copy the whole project folder to dest_dir/<slug>/. Refuses to overwrite."""
     target = dest_dir / project_dir.name
