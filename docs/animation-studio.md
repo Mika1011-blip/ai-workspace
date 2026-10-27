@@ -187,10 +187,13 @@ contract: read `/project/artifacts/07-render/`, write
 exit 0 or 1. No network needed at render time; no credentials in the image.
 The `ffmpeg` image is also the studio's media utility: `frames` (six
 stills of the candidate into `07-render-frames/` for the reviewer),
-`probe`, and `publish`. Its `plan.json` is a list of stills — an image or
-a flat colour, a caption, a duration — plus optional audio; enough for
-captioned slideshows and talking-point shorts while the heavier renderers
-are built.
+`probe`, `publish`, and `rasterize` (SVG → PNG). Its `plan.json` is a
+list of stills — an SVG the asset-maker drew (rasterised at the frame
+size inside the image: this is the studio's code-made image engine), a
+PNG/JPEG, or a flat colour — each with a caption and a duration, plus
+optional audio; enough for illustrated, captioned shorts while the
+heavier renderers are built. HTML → PNG needs a browser in the image and
+is not built yet.
 
 **Publish** (API): `ffprobe` must show H.264 video + AAC audio in MP4,
 `yuv420p`, `+faststart` — if not, the API re-muxes with the `ffmpeg`

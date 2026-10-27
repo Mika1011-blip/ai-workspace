@@ -247,8 +247,15 @@ def test_ffmpeg_image_renders_a_plan_and_publishes_browser_safe(tmp_path):
             {"text": "Why do cats purr?", "duration": 1.0, "color": "#1b1b2f"},
             # Long enough to need wrapping even at 360 px wide.
             {"text": "Three reasons, and the third one will surprise you more than the first", "duration": 1.0, "color": "#2f1b1b"},
+            # A code-made image: the renderer rasterises the SVG itself.
+            {"svg": "05-shot-3.svg", "text": "Drawn", "duration": 1.0},
         ],
     }), encoding="utf-8")
+    (project / "artifacts" / "05-shot-3.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640" viewBox="0 0 360 640">'
+        '<rect width="360" height="640" fill="#123456"/><circle cx="180" cy="300" r="120" fill="#ffcc00"/></svg>',
+        encoding="utf-8",
+    )
     r = render.Renderer()
 
     ok, out = r.render(project, "ffmpeg")
@@ -264,4 +271,4 @@ def test_ffmpeg_image_renders_a_plan_and_publishes_browser_safe(tmp_path):
         capture_output=True, text=True, check=True,
     ).stdout)
     assert info["video_codec"] == "h264" and info["pix_fmt"] == "yuv420p" and info["audio_codec"] is None
-    assert info["width"] == 360 and info["height"] == 640 and 1.8 < info["duration"] < 2.3
+    assert info["width"] == 360 and info["height"] == 640 and 2.8 < info["duration"] < 3.3
