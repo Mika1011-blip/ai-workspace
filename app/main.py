@@ -1,6 +1,9 @@
+import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -10,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -138,20 +141,38 @@ LOCKDOWN_SETTINGS = {
 }
 
 
-def lockdown_mcp_config(session_id: str, api_url: str) -> dict:
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def token_matches(entry: dict, token: str | None) -> bool:
+    if not token or not entry.get("token_hash"):
+        return False
+    return hmac.compare_digest(entry["token_hash"], hash_token(token))
+
+
+def lockdown_mcp_config(session_id: str, api_url: str, token: str) -> dict:
+    # The raw token lives only here, in the spawned session's MCP env. The
+    # API keeps its hash; nothing ever returns the token in a response.
     return {
         "mcpServers": {
             MCP_SERVER_NAME: {
                 "type": "stdio",
                 "command": sys.executable,
                 "args": [str(MCP_SERVER_PATH)],
-                "env": {"SESSION_ID": session_id, "WORKSPACE_API_URL": api_url},
+                "env": {
+                    "SESSION_ID": session_id,
+                    "SESSION_TOKEN": token,
+                    "WORKSPACE_API_URL": api_url,
+                },
             }
         }
     }
 
 
-def spawn_argv(agent: str, task: str, session_uuid: str, shared_dir: Path, api_url: str) -> list[str]:
+def spawn_argv(
+    agent: str, task: str, session_uuid: str, token: str, shared_dir: Path, api_url: str
+) -> list[str]:
     """The exact command for one locked-down app session.
 
     --restricted ignores user/project/local settings and confines the file
@@ -168,7 +189,7 @@ def spawn_argv(agent: str, task: str, session_uuid: str, shared_dir: Path, api_u
         "--session-id", session_uuid,
         "--name", agent,
         "--settings", json.dumps(LOCKDOWN_SETTINGS),
-        "--mcp-config", json.dumps(lockdown_mcp_config(session_uuid[:8], api_url)),
+        "--mcp-config", json.dumps(lockdown_mcp_config(session_uuid[:8], api_url, token)),
         "--add-dir", str(shared_dir),
         f"Read CLAUDE.md and ../_shared/COMMS.md, then: {task}",
     ]
@@ -376,15 +397,22 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Agent '{body.agent}' not found")
         session_uuid = str(uuid.uuid4())
         session_id = session_uuid[:8]
+        token = secrets.token_urlsafe(32)
         shared_dir.mkdir(exist_ok=True)
         write_lockdown_settings(agent_folder)
-        argv = spawn_argv(body.agent, body.task, session_uuid, shared_dir, api_url)
+        argv = spawn_argv(body.agent, body.task, session_uuid, token, shared_dir, api_url)
         printed_id = parse_spawned_id(spawn(argv, agent_folder))
         if printed_id != session_id:
             raise RuntimeError(f"claude started {printed_id!r}, expected {session_id!r}")
         started_at = datetime.now(timezone.utc).isoformat()
         sessions_store.insert_session(
-            sessions_db_path, session_id, body.agent, body.spawned_by, started_at, body.may_talk_to
+            sessions_db_path,
+            session_id,
+            body.agent,
+            body.spawned_by,
+            started_at,
+            body.may_talk_to,
+            hash_token(token),
         )
         return Session(
             session_id=session_id,
@@ -397,18 +425,28 @@ def create_app(
         )
 
     @app.get("/sessions")
-    def list_sessions(caller: str) -> list[Session]:
-        reachable = sessions_store.list_reachable(sessions_db_path, caller)
-        if reachable is None:
+    def list_sessions(
+        caller: str, x_session_token: str | None = Header(default=None)
+    ) -> list[Session]:
+        entry = sessions_store.get_session(sessions_db_path, caller)
+        if entry is None:
             raise HTTPException(status_code=404, detail=f"Session '{caller}' not found")
-        return [Session(**entry) for entry in reachable]
+        if not token_matches(entry, x_session_token):
+            raise HTTPException(status_code=401, detail="bad_token")
+        return [Session(**e) for e in sessions_store.list_reachable(sessions_db_path, caller)]
 
     @app.post("/sessions/{session_id}/messages", status_code=202)
-    def send_message(body: MessageCreate, session_id: str) -> dict:
+    def send_message(
+        body: MessageCreate, session_id: str, x_session_token: str | None = Header(default=None)
+    ) -> dict:
         sender = sessions_store.get_session(sessions_db_path, body.from_)
         target = sessions_store.get_session(sessions_db_path, session_id)
         if sender is None or target is None:
             raise HTTPException(status_code=404, detail="unknown_session")
+        # `from` is self-declared; the token proves the caller really is it.
+        if not token_matches(sender, x_session_token):
+            log_message(body.from_, session_id, "bad_token")
+            raise HTTPException(status_code=401, detail="bad_token")
         if sender["status"] != "live" or target["status"] != "live":
             log_message(body.from_, session_id, "session_ended")
             raise HTTPException(status_code=409, detail="session_ended")

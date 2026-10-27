@@ -23,13 +23,35 @@ def init_db(db_path: Path) -> None:
                 spawned_by TEXT,
                 started_at TEXT NOT NULL,
                 ended_at TEXT,
-                may_talk_to TEXT NOT NULL
+                may_talk_to TEXT NOT NULL,
+                token_hash TEXT
             )
             """
         )
+        # Databases created before tokens existed: add the column; their rows
+        # keep NULL and so can never authenticate, which is the right outcome.
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
+        if "token_hash" not in columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN token_hash TEXT")
         conn.commit()
     finally:
         conn.close()
+
+
+COLUMNS = "session_id, agent, status, spawned_by, started_at, ended_at, may_talk_to, token_hash"
+
+
+def _row_to_dict(row) -> dict:
+    return {
+        "session_id": row[0],
+        "agent": row[1],
+        "status": row[2],
+        "spawned_by": row[3],
+        "started_at": row[4],
+        "ended_at": row[5],
+        "may_talk_to": json.loads(row[6]),
+        "token_hash": row[7],
+    }
 
 
 def insert_session(
@@ -39,16 +61,16 @@ def insert_session(
     spawned_by: str | None,
     started_at: str,
     may_talk_to: list[str],
+    token_hash: str,
 ) -> None:
     conn = sqlite3.connect(db_path)
     try:
         conn.execute(
-            """
-            INSERT INTO sessions
-                (session_id, agent, status, spawned_by, started_at, ended_at, may_talk_to)
-            VALUES (?, ?, 'live', ?, ?, NULL, ?)
+            f"""
+            INSERT INTO sessions ({COLUMNS})
+            VALUES (?, ?, 'live', ?, ?, NULL, ?, ?)
             """,
-            (session_id, agent, spawned_by, started_at, json.dumps(may_talk_to)),
+            (session_id, agent, spawned_by, started_at, json.dumps(may_talk_to), token_hash),
         )
         conn.commit()
     finally:
@@ -59,23 +81,11 @@ def get_session(db_path: Path, session_id: str) -> dict | None:
     conn = sqlite3.connect(db_path)
     try:
         row = conn.execute(
-            "SELECT session_id, agent, status, spawned_by, started_at, ended_at, may_talk_to "
-            "FROM sessions WHERE session_id = ?",
-            (session_id,),
+            f"SELECT {COLUMNS} FROM sessions WHERE session_id = ?", (session_id,)
         ).fetchone()
     finally:
         conn.close()
-    if row is None:
-        return None
-    return {
-        "session_id": row[0],
-        "agent": row[1],
-        "status": row[2],
-        "spawned_by": row[3],
-        "started_at": row[4],
-        "ended_at": row[5],
-        "may_talk_to": json.loads(row[6]),
-    }
+    return None if row is None else _row_to_dict(row)
 
 
 def mark_ended(db_path: Path, session_id: str, ended_at: str) -> None:
@@ -120,22 +130,7 @@ def list_reachable(db_path: Path, caller_id: str) -> list[dict] | None:
     reachable_ids = {caller_id, *caller["may_talk_to"]}
     conn = sqlite3.connect(db_path)
     try:
-        rows = conn.execute(
-            "SELECT session_id, agent, status, spawned_by, started_at, ended_at, may_talk_to "
-            "FROM sessions"
-        ).fetchall()
+        rows = conn.execute(f"SELECT {COLUMNS} FROM sessions").fetchall()
     finally:
         conn.close()
-    return [
-        {
-            "session_id": r[0],
-            "agent": r[1],
-            "status": r[2],
-            "spawned_by": r[3],
-            "started_at": r[4],
-            "ended_at": r[5],
-            "may_talk_to": json.loads(r[6]),
-        }
-        for r in rows
-        if r[0] in reachable_ids
-    ]
+    return [_row_to_dict(r) for r in rows if r[0] in reachable_ids]

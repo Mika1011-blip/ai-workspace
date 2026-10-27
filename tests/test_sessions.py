@@ -76,6 +76,21 @@ def spawn(client, agent, task="do something", **extra):
     return client.post("/sessions", json={"agent": agent, "task": task, **extra})
 
 
+def mcp_env_of(session_id):
+    for argv, _ in SPAWNED:
+        mcp = json.loads(argv[argv.index("--mcp-config") + 1])
+        env = mcp["mcpServers"]["agent-workspace"]["env"]
+        if env["SESSION_ID"] == session_id:
+            return env
+    raise KeyError(session_id)
+
+
+def auth(session_id):
+    # What the spawned session's MCP server sends: the token the API put in
+    # its env, and nowhere else.
+    return {"X-Session-Token": mcp_env_of(session_id)["SESSION_TOKEN"]}
+
+
 class TestSpawnSession:
     def test_spawns_a_live_session(self, client):
         create_agent(client, "researcher")
@@ -161,6 +176,23 @@ class TestSpawnLockdown:
         assert server["env"]["WORKSPACE_API_URL"].startswith("http")
         assert server["args"][0].endswith("workspace_server.py")
 
+    def test_token_goes_only_to_the_sessions_mcp_env(self, client, agents_dir, sessions_db):
+        sid, argv, _ = self._spawn_argv(client, agents_dir)
+        token = mcp_env_of(sid)["SESSION_TOKEN"]
+
+        assert len(token) >= 32
+        # Not in the API response, and only its hash in the registry.
+        assert "token" not in client.get("/sessions", params={"caller": sid}, headers=auth(sid)).json()[0]
+        stored = sessions_store.get_session(sessions_db, sid)["token_hash"]
+        assert stored != token and len(stored) == 64
+
+    def test_every_session_gets_its_own_token(self, client, agents_dir):
+        create_agent(client, "researcher")
+        a = spawn(client, "researcher").json()["session_id"]
+        b = spawn(client, "researcher").json()["session_id"]
+
+        assert mcp_env_of(a)["SESSION_TOKEN"] != mcp_env_of(b)["SESSION_TOKEN"]
+
     def test_shared_folder_is_the_only_extra_directory(self, client, agents_dir):
         _, argv, _ = self._spawn_argv(client, agents_dir)
 
@@ -216,11 +248,25 @@ class TestListSessions:
         b = spawn(client, "writer", may_talk_to=[a]).json()["session_id"]
         spawn(client, "reviewer", may_talk_to=[])  # not reachable from b
 
-        res = client.get("/sessions", params={"caller": b})
+        res = client.get("/sessions", params={"caller": b}, headers=auth(b))
 
         assert res.status_code == 200
         ids = {s["session_id"] for s in res.json()}
         assert ids == {b, a}
+        assert all("token_hash" not in s and "token" not in s for s in res.json())
+
+    def test_wrong_or_missing_token_is_401(self, client):
+        create_agent(client, "researcher")
+        create_agent(client, "writer")
+        a = spawn(client, "researcher").json()["session_id"]
+        b = spawn(client, "writer").json()["session_id"]
+
+        missing = client.get("/sessions", params={"caller": b})
+        someone_elses = client.get("/sessions", params={"caller": b}, headers=auth(a))
+
+        assert missing.status_code == 401
+        assert someone_elses.status_code == 401
+        assert someone_elses.json()["detail"] == "bad_token"
 
 
 class TestSendMessage:
@@ -234,15 +280,28 @@ class TestSendMessage:
     def test_delivers_when_allowed(self, client):
         a, b = self._two_live_sessions(client)
 
-        res = client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"})
+        res = client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"}, headers=auth(a))
 
         assert res.status_code == 202
         assert res.json() == {"accepted": True}
 
+    def test_impersonating_a_sender_is_401_and_logged(self, client, messages_log):
+        # `from` says "a", but the token is b's (or nobody's): the whole point
+        # of the token is that `from` is otherwise just a claim.
+        a, b = self._two_live_sessions(client)
+
+        with_b = client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"}, headers=auth(b))
+        with_none = client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"})
+
+        assert with_b.status_code == 401
+        assert with_none.status_code == 401
+        assert with_b.json()["detail"] == "bad_token"
+        assert messages_log.read_text(encoding="utf-8").count('"outcome": "bad_token"') == 2
+
     def test_unknown_target_is_404(self, client):
         a, _ = self._two_live_sessions(client)
 
-        res = client.post("/sessions/no-such-id/messages", json={"from": a, "text": "hi"})
+        res = client.post("/sessions/no-such-id/messages", json={"from": a, "text": "hi"}, headers=auth(a))
 
         assert res.status_code == 404
         assert res.json()["detail"] == "unknown_session"
@@ -271,7 +330,7 @@ class TestSendMessage:
         a, b = self._two_live_sessions(client)
         sessions_store.mark_ended(sessions_db, b, datetime.now(timezone.utc).isoformat())
 
-        res = client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"})
+        res = client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"}, headers=auth(a))
 
         assert res.status_code == 409
         assert res.json()["detail"] == "session_ended"
@@ -282,7 +341,7 @@ class TestSendMessage:
         a = spawn(client, "researcher", may_talk_to=[]).json()["session_id"]
         b = spawn(client, "writer", may_talk_to=[]).json()["session_id"]  # doesn't list a
 
-        res = client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"})
+        res = client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"}, headers=auth(a))
 
         assert res.status_code == 403
         assert res.json()["detail"] == "not_allowed"
@@ -290,7 +349,7 @@ class TestSendMessage:
     def test_accepted_message_is_logged(self, client, messages_log):
         a, b = self._two_live_sessions(client)
 
-        client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"})
+        client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"}, headers=auth(a))
 
         lines = messages_log.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 1
@@ -335,7 +394,7 @@ class TestEndSession:
         b = spawn(client, "writer", may_talk_to=[a]).json()["session_id"]
         client.post(f"/sessions/{b}/end")
 
-        res = client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"})
+        res = client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"}, headers=auth(a))
 
         assert res.status_code == 409
 
