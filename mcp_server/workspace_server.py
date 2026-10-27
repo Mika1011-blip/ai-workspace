@@ -10,7 +10,14 @@ import httpx
 from fastmcp import FastMCP
 
 API_BASE_URL = os.environ.get("WORKSPACE_API_URL", "http://localhost:8000")
+# Both are set by the API when it spawns this session; the token is the
+# proof that `SESSION_ID` is really us, sent on every call that acts as us.
 SESSION_ID = os.environ.get("SESSION_ID", "")
+SESSION_TOKEN = os.environ.get("SESSION_TOKEN", "")
+
+
+def _auth() -> dict:
+    return {"X-Session-Token": SESSION_TOKEN}
 
 mcp = FastMCP("ai-workspace")
 
@@ -160,11 +167,14 @@ def spawn_session(agent: str, task: str) -> dict:
 def list_sessions() -> list[dict]:
     """List every session this one may reach.
 
-    Calls GET /sessions?caller=<this session's id> and returns itself plus
-    every session in its own `may_talk_to` list. Raises an error if this
-    session isn't registered.
+    Calls GET /sessions?caller=<this session's id> with this session's
+    token and returns itself plus every session in its own `may_talk_to`
+    list. Raises an error if this session isn't registered or the token
+    doesn't match.
     """
-    response = httpx.get(f"{API_BASE_URL}/sessions", params={"caller": SESSION_ID})
+    response = httpx.get(
+        f"{API_BASE_URL}/sessions", params={"caller": SESSION_ID}, headers=_auth()
+    )
     response.raise_for_status()
     return response.json()
 
@@ -174,14 +184,16 @@ def send_to_session(session_id: str, text: str) -> dict:
     """Send a message to another session.
 
     Calls POST /sessions/{session_id}/messages with `{"from":
-    SESSION_ID, "text": text}`. Returns `{"accepted": true}` -- the API
-    has checked and logged the message, but does not yet forward it into
-    the target session. Raises an error if either session is unknown or
-    ended, or if this session isn't allowed to message the target.
+    SESSION_ID, "text": text}` and this session's token. Returns
+    `{"accepted": true}` -- the API has checked and logged the message,
+    but does not yet forward it into the target session. Raises an error
+    if either session is unknown or ended, if the token doesn't match, or
+    if this session isn't allowed to message the target.
     """
     response = httpx.post(
         f"{API_BASE_URL}/sessions/{session_id}/messages",
         json={"from": SESSION_ID, "text": text},
+        headers=_auth(),
     )
     response.raise_for_status()
     return response.json()

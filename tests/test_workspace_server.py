@@ -244,35 +244,46 @@ def test_spawn_session_raises_on_unknown_agent(monkeypatch):
         ws.spawn_session("does-not-exist", "task")
 
 
-def test_list_sessions_gets_with_caller(monkeypatch):
+def test_list_sessions_gets_with_caller_and_token(monkeypatch):
     calls = []
     monkeypatch.setattr(ws, "SESSION_ID", "caller-1")
+    monkeypatch.setattr(ws, "SESSION_TOKEN", "tok-1")
 
-    def fake_get(url, params):
-        calls.append((url, params))
+    def fake_get(url, params, headers):
+        calls.append((url, params, headers))
         return FakeResponse(200, [{"session_id": "caller-1"}])
 
     monkeypatch.setattr(ws.httpx, "get", fake_get)
 
     result = ws.list_sessions()
 
-    assert calls == [(f"{ws.API_BASE_URL}/sessions", {"caller": "caller-1"})]
+    assert calls == [
+        (f"{ws.API_BASE_URL}/sessions", {"caller": "caller-1"}, {"X-Session-Token": "tok-1"})
+    ]
     assert result == [{"session_id": "caller-1"}]
 
 
 def test_list_sessions_raises_on_unknown_caller(monkeypatch):
-    monkeypatch.setattr(ws.httpx, "get", lambda url, params: FakeResponse(404))
+    monkeypatch.setattr(ws.httpx, "get", lambda url, params, headers: FakeResponse(404))
 
     with pytest.raises(httpx.HTTPStatusError):
         ws.list_sessions()
 
 
-def test_send_to_session_posts_message(monkeypatch):
+def test_list_sessions_raises_on_bad_token(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "get", lambda url, params, headers: FakeResponse(401))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.list_sessions()
+
+
+def test_send_to_session_posts_message_with_token(monkeypatch):
     calls = []
     monkeypatch.setattr(ws, "SESSION_ID", "caller-1")
+    monkeypatch.setattr(ws, "SESSION_TOKEN", "tok-1")
 
-    def fake_post(url, json):
-        calls.append((url, json))
+    def fake_post(url, json, headers):
+        calls.append((url, json, headers))
         return FakeResponse(202, {"accepted": True})
 
     monkeypatch.setattr(ws.httpx, "post", fake_post)
@@ -280,7 +291,11 @@ def test_send_to_session_posts_message(monkeypatch):
     result = ws.send_to_session("sess-2", "hi")
 
     assert calls == [
-        (f"{ws.API_BASE_URL}/sessions/sess-2/messages", {"from": "caller-1", "text": "hi"})
+        (
+            f"{ws.API_BASE_URL}/sessions/sess-2/messages",
+            {"from": "caller-1", "text": "hi"},
+            {"X-Session-Token": "tok-1"},
+        )
     ]
     assert result == {"accepted": True}
 
@@ -308,14 +323,21 @@ def test_end_session_raises_on_unknown_session(monkeypatch):
 
 
 def test_send_to_session_raises_on_unknown_session(monkeypatch):
-    monkeypatch.setattr(ws.httpx, "post", lambda url, json: FakeResponse(404))
+    monkeypatch.setattr(ws.httpx, "post", lambda url, json, headers: FakeResponse(404))
 
     with pytest.raises(httpx.HTTPStatusError):
         ws.send_to_session("does-not-exist", "hi")
 
 
 def test_send_to_session_raises_when_not_allowed(monkeypatch):
-    monkeypatch.setattr(ws.httpx, "post", lambda url, json: FakeResponse(403))
+    monkeypatch.setattr(ws.httpx, "post", lambda url, json, headers: FakeResponse(403))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.send_to_session("sess-2", "hi")
+
+
+def test_send_to_session_raises_on_bad_token(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "post", lambda url, json, headers: FakeResponse(401))
 
     with pytest.raises(httpx.HTTPStatusError):
         ws.send_to_session("sess-2", "hi")

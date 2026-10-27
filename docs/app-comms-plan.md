@@ -16,6 +16,7 @@ One table, one writer (the API itself — no other process touches it):
 | `spawned_by` | text | `session_id` of the spawner, or `app-master` |
 | `started_at` / `ended_at` | text (ISO 8601) | `ended_at` null while live |
 | `may_talk_to` | text (JSON array) | session ids this one may message |
+| `token_hash` | text | SHA-256 of the session's token; the raw token exists only in that session's MCP env (`SESSION_TOKEN`) |
 
 Mirrors the crew registry's shape (`docs/comms-protocol.md` §2) so the two
 halves stay conceptually identical, just file-backed on the crew side and
@@ -35,16 +36,21 @@ POST /sessions
      Docker image doesn't have, so docker-compose sets this off.
 
 GET /sessions?caller={session_id}
+  header: X-Session-Token: <caller's token>
   -> 200, the sessions `caller` may reach: itself, every id in its own
      `may_talk_to`, plus app-master.
-  -> 404 if `caller` is unknown.
+  -> 404 if `caller` is unknown; 401 "bad_token" if the token isn't
+     caller's.
 
 POST /sessions/{id}/messages
   body: { "from": str, "text": str }
+  header: X-Session-Token: <from's token>
   -> 202 { "accepted": true }. Checked and logged only -- forwarding the
      text into `{id}`'s running session is NOT implemented yet, so the
      response must not say "delivered".
   -> 404 "unknown_session" if `id` or `from` doesn't exist in the table.
+  -> 401 "bad_token" if the token isn't `from`'s -- `from` is otherwise
+     just a claim any client could make.
   -> 409 "session_ended" if either is `ended`.
   -> 403 "not_allowed" if `from` isn't in `{id}`'s `may_talk_to`.
   Every attempt (success or refusal) is appended to `runs/messages.jsonl`
@@ -77,9 +83,10 @@ end_session(session_id: str) -> dict              # POST /sessions/{id}/end
 
 Same thin-wrapper style as the existing tools (`httpx` calls,
 `raise_for_status()`, no local filesystem access). `list_sessions`/
-`send_to_session` need to know their own session id as the caller —
-proposal: the API passes it in as an env var (e.g. `SESSION_ID`) when it
-spawns the session, and these tools read it from `os.environ`.
+`send_to_session` act as the calling session: the API sets `SESSION_ID`
+and `SESSION_TOKEN` in the MCP server's env at spawn time (see §4), and
+these tools send the token as `X-Session-Token` on every call that
+claims to be `SESSION_ID`.
 
 ## 4. Per-agent lockdown (owner: worktree A — app-master writes these into
 every agent it creates)
