@@ -75,6 +75,12 @@ class SessionCreate(BaseModel):
     may_talk_to: list[str] = []
     trigger: str = "manual"
     tags: list[str] = []
+    # Per-spawn grants -- nothing is granted unless named here (see §4 of
+    # docs/app-comms-plan.md): extra built-in tools, and extra directories
+    # the worker may read, or read and write.
+    tools: list[str] = []
+    read_from: list[str] = []
+    write_to: list[str] = []
 
 
 class Session(BaseModel):
@@ -141,18 +147,34 @@ def claude_cli() -> str:
 MCP_SERVER_NAME = "ai-workspace"
 MCP_SERVER_PATH = Path(__file__).resolve().parents[1] / "mcp_server" / "workspace_server.py"
 
-def lockdown_settings(shared_dir: Path) -> dict:
+# Every app session has these; --tools *defines* the built-in set, so the
+# full list is always passed, with any granted tools appended.
+BASE_TOOLS = ["Read", "Glob", "Grep", "Edit", "Write"]
+GRANTABLE_TOOLS = {"WebSearch", "WebFetch"}
+
+
+def rule_path(directory: Path) -> str:
+    # "//" prefix = absolute path in Claude Code permission rules.
+    return "//" + directory.resolve().as_posix().lstrip("/")
+
+
+def lockdown_settings(
+    shared_dir: Path, read_only_dirs: list[Path] = (), tools: list[str] = ()
+) -> dict:
     """The wall, as the API enforces it on every spawned app session. Mirrors
     docs/comms-protocol.md §5: Claude Code's own messaging is closed; the
-    file tools reach only the worker's folder and workers/_shared (that is
-    --restricted's job), and _shared stays read-only -- a worker may build
-    anything inside its own folder, never in the shared one."""
-    # "//" prefix = absolute path in Claude Code permission rules.
-    shared = "//" + shared_dir.resolve().as_posix().lstrip("/")
+    file tools reach only the worker's folder and the granted directories
+    (that is --restricted's job), and read-only grants -- _shared always
+    among them -- get deny rules for Edit and Write. A worker may build
+    anything inside its own folder (or a write_to grant), never elsewhere."""
+    read_only = [shared_dir, *read_only_dirs]
+    deny = ["SendMessage", "ListAgents", "Bash"]
+    for directory in read_only:
+        deny += [f"Edit({rule_path(directory)}/**)", f"Write({rule_path(directory)}/**)"]
     return {
         "permissions": {
-            "allow": ["Read", "Glob", "Grep", "Edit", "Write", f"mcp__{MCP_SERVER_NAME}__*"],
-            "deny": ["SendMessage", "ListAgents", "Bash", f"Edit({shared}/**)", f"Write({shared}/**)"],
+            "allow": [*BASE_TOOLS, *tools, f"mcp__{MCP_SERVER_NAME}__*"],
+            "deny": deny,
         },
         "crossSessionInbound": "refuse",
     }
@@ -188,7 +210,15 @@ def lockdown_mcp_config(session_id: str, api_url: str, token: str) -> dict:
 
 
 def spawn_argv(
-    worker: str, task: str, session_uuid: str, token: str, shared_dir: Path, api_url: str
+    worker: str,
+    task: str,
+    session_uuid: str,
+    token: str,
+    shared_dir: Path,
+    api_url: str,
+    tools: list[str] = (),
+    read_from: list[Path] = (),
+    write_to: list[Path] = (),
 ) -> list[str]:
     """The exact command for one locked-down app session.
 
@@ -196,18 +226,24 @@ def spawn_argv(
     tools to cwd plus --add-dir; --strict-mcp-config keeps every MCP server
     but ours out; dontAsk turns anything not allow-listed into a refusal,
     since a background session has nobody to answer a prompt.
+
+    --add-dir and --tools are variadic: they swallow every following
+    argument until the next flag, so they go first and the single-valued
+    --name sits right before the prompt. Never reorder that.
     """
+    add_dirs = [shared_dir, *read_from, *write_to]
     return [
         claude_cli(),
         "--bg",
         "--restricted",
         "--strict-mcp-config",
+        "--add-dir", *[str(d) for d in add_dirs],
+        "--tools", ",".join([*BASE_TOOLS, *tools]),
         "--permission-mode", "dontAsk",
         "--session-id", session_uuid,
-        "--name", worker,
-        "--settings", json.dumps(lockdown_settings(shared_dir)),
+        "--settings", json.dumps(lockdown_settings(shared_dir, list(read_from), list(tools))),
         "--mcp-config", json.dumps(lockdown_mcp_config(session_uuid[:8], api_url, token)),
-        "--add-dir", str(shared_dir),
+        "--name", worker,
         f"Read CLAUDE.md and ../_shared/COMMS.md, then: {task}",
     ]
 
@@ -258,6 +294,7 @@ def create_app(
     templates_dir: Path | str | None = None,
     sessions_db: Path | str | None = None,
     messages_log: Path | str | None = None,
+    projects_dir: Path | str | None = None,
     api_url: str | None = None,
     spawn_fn: Callable[[list[str], Path], str] | None = None,
     spawn_enabled: bool | None = None,
@@ -274,6 +311,22 @@ def create_app(
     messages_log_path.parent.mkdir(parents=True, exist_ok=True)
     api_url = api_url or os.environ.get("WORKSPACE_API_URL", "http://localhost:8000")
     shared_dir = workers_path / "_shared"
+    projects_path = Path(projects_dir or os.environ.get("PROJECTS_DIR", "projects"))
+    projects_path.mkdir(parents=True, exist_ok=True)
+
+    def resolve_grant(raw: str) -> Path:
+        """A grantable directory: an existing folder under workers/ or
+        projects/, given relative to the repo root. Anything else is a 400."""
+        candidate = Path(raw)
+        if candidate.is_absolute() or ".." in candidate.parts:
+            raise HTTPException(status_code=400, detail=f"bad_dir: {raw!r}")
+        resolved = candidate.resolve()
+        roots = [workers_path.resolve(), projects_path.resolve()]
+        if not any(resolved == root or root in resolved.parents for root in roots):
+            raise HTTPException(status_code=400, detail=f"bad_dir: {raw!r} is outside workers/ and projects/")
+        if not resolved.is_dir():
+            raise HTTPException(status_code=400, detail=f"bad_dir: {raw!r} does not exist")
+        return resolved
     spawn = spawn_fn or default_spawn_fn
     stop = stop_fn or default_stop_fn
     running_ids = running_ids_fn or default_running_ids_fn
@@ -449,12 +502,20 @@ def create_app(
             run_records.validate_tags(body.tags)
         except run_records.BadTag as exc:
             raise HTTPException(status_code=400, detail=f"bad_tag: {exc}")
+        bad_tools = sorted(set(body.tools) - GRANTABLE_TOOLS)
+        if bad_tools:
+            raise HTTPException(status_code=400, detail=f"bad_tool: {bad_tools} (grantable: {sorted(GRANTABLE_TOOLS)})")
+        read_from = [resolve_grant(d) for d in body.read_from]
+        write_to = [resolve_grant(d) for d in body.write_to]
         session_uuid = str(uuid.uuid4())
         session_id = session_uuid[:8]
         token = secrets.token_urlsafe(32)
         shared_dir.mkdir(exist_ok=True)
         write_lockdown_settings(worker_folder, shared_dir)
-        argv = spawn_argv(body.worker, body.task, session_uuid, token, shared_dir, api_url)
+        argv = spawn_argv(
+            body.worker, body.task, session_uuid, token, shared_dir, api_url,
+            tools=body.tools, read_from=read_from, write_to=write_to,
+        )
         printed_id = parse_spawned_id(spawn(argv, worker_folder))
         if printed_id != session_id:
             raise RuntimeError(f"claude started {printed_id!r}, expected {session_id!r}")
@@ -489,6 +550,9 @@ def create_app(
                 "trigger": body.trigger,
                 "spawned_by": body.spawned_by,
                 "task": body.task,
+                "tools": body.tools,
+                "read_from": body.read_from,
+                "write_to": body.write_to,
             },
         )
         return Session(

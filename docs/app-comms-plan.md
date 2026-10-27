@@ -122,9 +122,19 @@ every worker it creates)
   once if missing (never overwriting a hand-curated one like
   app-master's). Under `--restricted` it isn't even loaded; it's for
   anyone running `claude` in that folder by hand.
-- Wiring a new tool/server for a specific worker is always a deliberate,
-  explicit change to what the API passes — by the user or by whoever's
-  building — never automatic.
+- **Per-spawn grants** are the only way a worker gets more. `POST
+  /sessions` takes `tools` (from a short grantable list: `WebSearch`,
+  `WebFetch` — anything else is `400 bad_tool`), `read_from` and
+  `write_to` (existing folders under `workers/` or `projects/`, repo
+  relative, no `..`, else `400 bad_dir`). They become `--tools` (the
+  full built-in set, base + grants), extra `--add-dir`s, and — for
+  `read_from` — the same `Edit`/`Write` deny rules `_shared` gets. The
+  grants are written to the worker's activity log with the `spawned`
+  event. Nothing is ever granted by default.
+- `--add-dir` and `--tools` are variadic: they swallow following
+  arguments until the next flag. The argv puts them first and the
+  single-valued `--name` immediately before the prompt; a test pins that
+  order.
 - `workers/_shared/`: a read-only reference folder, no `CLAUDE.md` (so
   `GET /workers` never lists it as a worker — `app/main.py`'s `list_workers`
   already filters on `CLAUDE.md` presence). Every worker's `Read` scope

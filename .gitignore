@@ -6,5 +6,6 @@ data/sessions.db
 runs/messages.jsonl
 workers/*/runs/
 workers/*/activity.jsonl
+projects/
 .claude/crew/runs/
 .playwright-mcp/
