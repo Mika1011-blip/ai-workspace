@@ -134,6 +134,7 @@ def create_app(
     sessions_db: Path | str | None = None,
     messages_log: Path | str | None = None,
     spawn_fn: Callable[[str, str, Path], str] | None = None,
+    spawn_enabled: bool | None = None,
 ) -> FastAPI:
     agents_path = Path(agents_dir or os.environ.get("AGENTS_DIR", "agents"))
     agents_path.mkdir(parents=True, exist_ok=True)
@@ -143,6 +144,8 @@ def create_app(
     messages_log_path = Path(messages_log or os.environ.get("MESSAGES_LOG", "runs/messages.jsonl"))
     messages_log_path.parent.mkdir(parents=True, exist_ok=True)
     spawn = spawn_fn or default_spawn_fn
+    if spawn_enabled is None:
+        spawn_enabled = os.environ.get("SPAWN_ENABLED", "true").lower() not in ("0", "false", "no")
 
     def log_message(from_id: str, to_id: str, outcome: str) -> None:
         entry = {
@@ -256,6 +259,8 @@ def create_app(
 
     @app.post("/sessions", status_code=201)
     def spawn_session(body: SessionCreate) -> Session:
+        if not spawn_enabled:
+            raise HTTPException(status_code=503, detail="spawning_disabled")
         validate_name(body.agent)
         agent_folder = agents_path / body.agent
         if not (agent_folder / "CLAUDE.md").is_file():

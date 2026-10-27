@@ -3,6 +3,13 @@ services:
     build: .
     ports:
       - "8000:8000"
+    environment:
+      # Spawning runs `claude --bg` on the host; the image has no claude
+      # CLI or login, so POST /sessions answers 503 instead of crashing.
+      SPAWN_ENABLED: "false"
     volumes:
-      # Agents live on your disk, so they survive container rebuilds.
+      # All on your disk, so they survive container rebuilds.
       - ./agents:/app/agents
+      - ./agent_templates:/app/agent_templates
+      - ./data:/app/data
+      - ./runs:/app/runs
