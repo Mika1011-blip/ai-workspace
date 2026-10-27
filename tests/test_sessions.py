@@ -7,16 +7,18 @@ from fastapi.testclient import TestClient
 from app import sessions_store
 from app.main import create_app
 
-SPAWNED = []
+SPAWNED = []      # (argv, cwd) per spawn, in order
+SPAWNED_IDS = []  # the id the fake CLI printed for each, same order
 STOPPED = []
 
 
 def fake_spawn_fn(argv, cwd):
-    # Stands in for `claude --bg ...`: records the command, prints what the
-    # real CLI prints (the id is the first 8 chars of --session-id).
+    # Stands in for `claude --bg ...`: records the command and prints what
+    # the real CLI prints. Like the real one, it picks the id itself.
     SPAWNED.append((argv, cwd))
-    session_uuid = argv[argv.index("--session-id") + 1]
-    return f"backgrounded · {session_uuid[:8]} · {argv[argv.index('--name') + 1]}\n"
+    sid = f"{len(SPAWNED):08x}"
+    SPAWNED_IDS.append(sid)
+    return f"backgrounded · {sid} · {argv[argv.index('--name') + 1]}\n"
 
 
 def fake_stop_fn(session_id):
@@ -26,6 +28,7 @@ def fake_stop_fn(session_id):
 @pytest.fixture(autouse=True)
 def _reset_fakes():
     SPAWNED.clear()
+    SPAWNED_IDS.clear()
     STOPPED.clear()
 
 
@@ -77,12 +80,9 @@ def spawn(client, worker, task="do something", **extra):
 
 
 def mcp_env_of(session_id):
-    for argv, _ in SPAWNED:
-        mcp = json.loads(argv[argv.index("--mcp-config") + 1])
-        env = mcp["mcpServers"]["ai-workspace"]["env"]
-        if env["SESSION_ID"] == session_id:
-            return env
-    raise KeyError(session_id)
+    argv, _ = SPAWNED[SPAWNED_IDS.index(session_id)]
+    mcp = json.loads(argv[argv.index("--mcp-config") + 1])
+    return mcp["mcpServers"]["ai-workspace"]["env"]
 
 
 def auth(session_id):
@@ -99,8 +99,9 @@ class TestSpawnSession:
 
         assert res.status_code == 201
         body = res.json()
-        argv, cwd = SPAWNED[0]
-        assert body["session_id"] == argv[argv.index("--session-id") + 1][:8]
+        # The id is whatever Claude Code printed -- it assigns its own.
+        assert body["session_id"] == SPAWNED_IDS[0]
+        assert "--session-id" not in SPAWNED[0][0]
         assert body["worker"] == "researcher"
         assert body["status"] == "live"
         assert body["ended_at"] is None
@@ -186,13 +187,14 @@ class TestSpawnLockdown:
         )
         assert written == settings
 
-    def test_only_our_mcp_server_with_its_own_session_id(self, client, workers_dir):
+    def test_only_our_mcp_server_identified_by_token_alone(self, client, workers_dir):
         sid, argv, _ = self._spawn_argv(client, workers_dir)
         mcp = json.loads(argv[argv.index("--mcp-config") + 1])
 
         assert list(mcp["mcpServers"]) == ["ai-workspace"]
         server = mcp["mcpServers"]["ai-workspace"]
-        assert server["env"]["SESSION_ID"] == sid
+        # No SESSION_ID: the id isn't known before launch, the token is the identity.
+        assert set(server["env"]) == {"SESSION_TOKEN", "WORKSPACE_API_URL"}
         assert server["env"]["WORKSPACE_API_URL"].startswith("http")
         assert server["args"][0].endswith("workspace_server.py")
 
@@ -235,14 +237,14 @@ class TestSpawnLockdown:
             "permissions": {"allow": ["Task"]}
         }
 
-    def test_refuses_if_claude_started_a_different_id(
+    def test_unparsable_claude_output_is_500_and_registers_nothing(
         self, workers_dir, templates_dir, sessions_db, messages_log
     ):
-        def wrong_id_spawn(argv, cwd):
-            return "backgrounded · deadbeef · researcher\n"
+        def garbled_spawn(argv, cwd):
+            return "something went wrong\n"
 
         client = TestClient(
-            make_app(workers_dir, templates_dir, sessions_db, messages_log, spawn_fn=wrong_id_spawn),
+            make_app(workers_dir, templates_dir, sessions_db, messages_log, spawn_fn=garbled_spawn),
             raise_server_exceptions=False,
         )
         create_worker(client, "researcher")
@@ -250,7 +252,78 @@ class TestSpawnLockdown:
         res = spawn(client, "researcher")
 
         assert res.status_code == 500
-        assert sessions_store.get_session(sessions_db, "deadbeef") is None
+        assert client.get("/runs").json() == []
+
+
+class TestIdentityByToken:
+    """A worker never knows its own id; the token alone says who it is."""
+
+    def _two(self, client):
+        create_worker(client, "researcher")
+        create_worker(client, "writer")
+        a = spawn(client, "researcher", may_talk_to=[]).json()["session_id"]
+        b = spawn(client, "writer", may_talk_to=[a]).json()["session_id"]
+        return a, b
+
+    def test_list_sessions_without_caller(self, client):
+        a, b = self._two(client)
+
+        res = client.get("/sessions", headers=auth(b))
+
+        assert res.status_code == 200
+        assert {s["session_id"] for s in res.json()} == {a, b}
+
+    def test_list_sessions_with_no_or_unknown_token_is_401(self, client):
+        self._two(client)
+
+        assert client.get("/sessions").status_code == 401
+        assert client.get("/sessions", headers={"X-Session-Token": "nope"}).status_code == 401
+
+    def test_caller_that_disagrees_with_token_is_401(self, client):
+        a, b = self._two(client)
+
+        res = client.get("/sessions", params={"caller": a}, headers=auth(b))
+
+        assert res.status_code == 401
+
+    def test_send_without_from(self, client, messages_log):
+        a, b = self._two(client)
+
+        res = client.post(f"/sessions/{b}/messages", json={"text": "hi"}, headers=auth(a))
+
+        assert res.status_code == 202
+        assert f'"from": "{a}"' in messages_log.read_text(encoding="utf-8")
+
+    def test_from_that_disagrees_with_token_is_401(self, client):
+        a, b = self._two(client)
+
+        res = client.post(f"/sessions/{b}/messages", json={"from": b, "text": "hi"}, headers=auth(a))
+
+        assert res.status_code == 401
+
+    def test_report_as_me(self, client, workers_dir):
+        a, _ = self._two(client)
+
+        res = client.post("/sessions/me/result", json={"status": "success", "summary": "ok"}, headers=auth(a))
+
+        assert res.status_code == 200
+        assert res.json()["session_id"] == a and res.json()["status"] == "success"
+
+    def test_report_as_me_without_token_is_401(self, client):
+        self._two(client)
+
+        assert client.post("/sessions/me/result", json={"status": "success"}).status_code == 401
+
+    def test_spawner_is_recorded_from_its_token(self, client):
+        create_worker(client, "producer")
+        create_worker(client, "scriptwriter")
+        producer = spawn(client, "producer").json()["session_id"]
+
+        child = client.post(
+            "/sessions", json={"worker": "scriptwriter", "task": "write"}, headers=auth(producer)
+        ).json()
+
+        assert child["spawned_by"] == producer
 
 
 class TestListSessions:

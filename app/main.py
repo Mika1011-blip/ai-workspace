@@ -7,7 +7,6 @@ import secrets
 import shutil
 import subprocess
 import sys
-import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -103,7 +102,9 @@ class ResultReport(BaseModel):
 
 
 class MessageCreate(BaseModel):
-    from_: str = Field(alias="from")
+    # `from` is optional: the token says who the sender is. If given, it
+    # must agree with the token.
+    from_: str | None = Field(default=None, alias="from")
     text: str
 
     model_config = {"populate_by_name": True}
@@ -190,20 +191,19 @@ def token_matches(entry: dict, token: str | None) -> bool:
     return hmac.compare_digest(entry["token_hash"], hash_token(token))
 
 
-def lockdown_mcp_config(session_id: str, api_url: str, token: str) -> dict:
+def lockdown_mcp_config(api_url: str, token: str) -> dict:
     # The raw token lives only here, in the spawned session's MCP env. The
-    # API keeps its hash; nothing ever returns the token in a response.
+    # API keeps its hash; nothing ever returns the token in a response. The
+    # token is the session's whole identity: `claude --bg` picks its own id
+    # (it ignores --session-id), so the id isn't known until after launch
+    # and the API resolves "who is calling" from the token instead.
     return {
         "mcpServers": {
             MCP_SERVER_NAME: {
                 "type": "stdio",
                 "command": sys.executable,
                 "args": [str(MCP_SERVER_PATH)],
-                "env": {
-                    "SESSION_ID": session_id,
-                    "SESSION_TOKEN": token,
-                    "WORKSPACE_API_URL": api_url,
-                },
+                "env": {"SESSION_TOKEN": token, "WORKSPACE_API_URL": api_url},
             }
         }
     }
@@ -212,7 +212,6 @@ def lockdown_mcp_config(session_id: str, api_url: str, token: str) -> dict:
 def spawn_argv(
     worker: str,
     task: str,
-    session_uuid: str,
     token: str,
     shared_dir: Path,
     api_url: str,
@@ -240,9 +239,8 @@ def spawn_argv(
         "--add-dir", *[str(d) for d in add_dirs],
         "--tools", ",".join([*BASE_TOOLS, *tools]),
         "--permission-mode", "dontAsk",
-        "--session-id", session_uuid,
         "--settings", json.dumps(lockdown_settings(shared_dir, list(read_from), list(tools))),
-        "--mcp-config", json.dumps(lockdown_mcp_config(session_uuid[:8], api_url, token)),
+        "--mcp-config", json.dumps(lockdown_mcp_config(api_url, token)),
         "--name", worker,
         f"Read CLAUDE.md and ../_shared/COMMS.md, then: {task}",
     ]
@@ -260,8 +258,19 @@ def write_lockdown_settings(worker_folder: Path, shared_dir: Path) -> None:
 
 def default_spawn_fn(argv: list[str], cwd: Path) -> str:
     """Run the spawn command and return what Claude Code printed."""
-    result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=True)
+    # The "·" in "backgrounded · <id> · <name>" is UTF-8; the Windows locale
+    # would mangle it and leave garbage glued to the id.
+    result = subprocess.run(
+        argv, cwd=cwd, capture_output=True, encoding="utf-8", errors="replace", check=True
+    )
     return result.stdout
+
+
+def authenticate(db_path: Path, token: str | None) -> dict | None:
+    """The session a token belongs to, or None."""
+    if not token:
+        return None
+    return sessions_store.get_by_token_hash(db_path, hash_token(token))
 
 
 def parse_spawned_id(stdout: str) -> str:
@@ -489,7 +498,9 @@ def create_app(
         return Skill(name=body.skill_name, content=body.content)
 
     @app.post("/sessions", status_code=201)
-    def spawn_session(body: SessionCreate) -> Session:
+    def spawn_session(
+        body: SessionCreate, x_session_token: str | None = Header(default=None)
+    ) -> Session:
         if not spawn_enabled:
             raise HTTPException(status_code=503, detail="spawning_disabled")
         validate_name(body.worker)
@@ -507,25 +518,27 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"bad_tool: {bad_tools} (grantable: {sorted(GRANTABLE_TOOLS)})")
         read_from = [resolve_grant(d) for d in body.read_from]
         write_to = [resolve_grant(d) for d in body.write_to]
-        session_uuid = str(uuid.uuid4())
-        session_id = session_uuid[:8]
+        # A spawning session identifies itself by its token, not by a claim.
+        spawned_by = body.spawned_by
+        if spawned_by is None:
+            spawner = authenticate(sessions_db_path, x_session_token)
+            spawned_by = spawner["session_id"] if spawner else None
         token = secrets.token_urlsafe(32)
         shared_dir.mkdir(exist_ok=True)
         write_lockdown_settings(worker_folder, shared_dir)
         argv = spawn_argv(
-            body.worker, body.task, session_uuid, token, shared_dir, api_url,
+            body.worker, body.task, token, shared_dir, api_url,
             tools=body.tools, read_from=read_from, write_to=write_to,
         )
-        printed_id = parse_spawned_id(spawn(argv, worker_folder))
-        if printed_id != session_id:
-            raise RuntimeError(f"claude started {printed_id!r}, expected {session_id!r}")
+        # Claude Code assigns the id itself and prints it; it is only known now.
+        session_id = parse_spawned_id(spawn(argv, worker_folder))
         now = datetime.now(timezone.utc)
         started_at = now.isoformat()
         sessions_store.insert_session(
             sessions_db_path,
             session_id,
             body.worker,
-            body.spawned_by,
+            spawned_by,
             started_at,
             body.may_talk_to,
             hash_token(token),
@@ -548,7 +561,7 @@ def create_app(
                 "session_id": session_id,
                 "run_id": record["run_id"],
                 "trigger": body.trigger,
-                "spawned_by": body.spawned_by,
+                "spawned_by": spawned_by,
                 "task": body.task,
                 "tools": body.tools,
                 "read_from": body.read_from,
@@ -559,7 +572,7 @@ def create_app(
             session_id=session_id,
             worker=body.worker,
             status="live",
-            spawned_by=body.spawned_by,
+            spawned_by=spawned_by,
             started_at=started_at,
             ended_at=None,
             may_talk_to=body.may_talk_to,
@@ -570,11 +583,18 @@ def create_app(
     def report_result(
         body: ResultReport, session_id: str, x_session_token: str | None = Header(default=None)
     ) -> dict:
-        entry = sessions_store.get_session(sessions_db_path, session_id)
-        if entry is None:
-            raise HTTPException(status_code=404, detail="unknown_session")
-        if not token_matches(entry, x_session_token):
-            raise HTTPException(status_code=401, detail="bad_token")
+        # "me" = whoever the token says; a worker never needs to know its id.
+        if session_id == "me":
+            entry = authenticate(sessions_db_path, x_session_token)
+            if entry is None:
+                raise HTTPException(status_code=401, detail="bad_token")
+            session_id = entry["session_id"]
+        else:
+            entry = sessions_store.get_session(sessions_db_path, session_id)
+            if entry is None:
+                raise HTTPException(status_code=404, detail="unknown_session")
+            if not token_matches(entry, x_session_token):
+                raise HTTPException(status_code=401, detail="bad_token")
         if entry["status"] != "live":
             raise HTTPException(status_code=409, detail="session_ended")
         if body.status not in run_records.REPORTABLE_STATUSES:
@@ -621,38 +641,53 @@ def create_app(
 
     @app.get("/sessions")
     def list_sessions(
-        caller: str, x_session_token: str | None = Header(default=None)
+        caller: str | None = None, x_session_token: str | None = Header(default=None)
     ) -> list[Session]:
-        entry = sessions_store.get_session(sessions_db_path, caller)
-        if entry is None:
-            raise HTTPException(status_code=404, detail=f"Session '{caller}' not found")
-        if not token_matches(entry, x_session_token):
-            raise HTTPException(status_code=401, detail="bad_token")
-        return [Session(**e) for e in sessions_store.list_reachable(sessions_db_path, caller)]
+        # The token says who is asking; `caller`, if given, must agree.
+        if caller is not None:
+            entry = sessions_store.get_session(sessions_db_path, caller)
+            if entry is None:
+                raise HTTPException(status_code=404, detail=f"Session '{caller}' not found")
+            if not token_matches(entry, x_session_token):
+                raise HTTPException(status_code=401, detail="bad_token")
+        else:
+            entry = authenticate(sessions_db_path, x_session_token)
+            if entry is None:
+                raise HTTPException(status_code=401, detail="bad_token")
+        return [
+            Session(**e)
+            for e in sessions_store.list_reachable(sessions_db_path, entry["session_id"])
+        ]
 
     @app.post("/sessions/{session_id}/messages", status_code=202)
     def send_message(
         body: MessageCreate, session_id: str, x_session_token: str | None = Header(default=None)
     ) -> dict:
-        sender = sessions_store.get_session(sessions_db_path, body.from_)
+        # The token says who the sender is; `from`, if given, must agree.
+        if body.from_ is None:
+            sender = authenticate(sessions_db_path, x_session_token)
+            if sender is None:
+                raise HTTPException(status_code=401, detail="bad_token")
+        else:
+            sender = sessions_store.get_session(sessions_db_path, body.from_)
         target = sessions_store.get_session(sessions_db_path, session_id)
         if sender is None or target is None:
             raise HTTPException(status_code=404, detail="unknown_session")
+        sender_id = sender["session_id"]
 
         def outcome(name: str) -> None:
             # Global audit log plus both workers' own timelines, refusals included.
-            log_message(body.from_, session_id, name)
+            log_message(sender_id, session_id, name)
             activity.log(workers_path, sender["worker"], "message_out", {"to": session_id, "outcome": name})
-            activity.log(workers_path, target["worker"], "message_in", {"from": body.from_, "outcome": name})
+            activity.log(workers_path, target["worker"], "message_in", {"from": sender_id, "outcome": name})
 
-        # `from` is self-declared; the token proves the caller really is it.
         if not token_matches(sender, x_session_token):
             outcome("bad_token")
             raise HTTPException(status_code=401, detail="bad_token")
         if sender["status"] != "live" or target["status"] != "live":
             outcome("session_ended")
             raise HTTPException(status_code=409, detail="session_ended")
-        if body.from_ not in target["may_talk_to"]:
+        if sender_id not in target["may_talk_to"]:
             outcome("not_allowed")
             raise HTTPException(status_code=403, detail="not_allowed")
         # Accepted and logged only: forwarding into the target session is
