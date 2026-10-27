@@ -141,16 +141,21 @@ def claude_cli() -> str:
 MCP_SERVER_NAME = "ai-workspace"
 MCP_SERVER_PATH = Path(__file__).resolve().parents[1] / "mcp_server" / "workspace_server.py"
 
-# The wall, as the API enforces it on every spawned app session. Mirrors
-# docs/comms-protocol.md §5: Claude Code's own messaging is closed, and the
-# file tools can't touch anything but the worker's folder and workers/_shared.
-LOCKDOWN_SETTINGS = {
-    "permissions": {
-        "allow": ["Read", "Glob", "Grep", f"mcp__{MCP_SERVER_NAME}__*"],
-        "deny": ["SendMessage", "ListAgents", "Edit", "Write", "Bash"],
-    },
-    "crossSessionInbound": "refuse",
-}
+def lockdown_settings(shared_dir: Path) -> dict:
+    """The wall, as the API enforces it on every spawned app session. Mirrors
+    docs/comms-protocol.md §5: Claude Code's own messaging is closed; the
+    file tools reach only the worker's folder and workers/_shared (that is
+    --restricted's job), and _shared stays read-only -- a worker may build
+    anything inside its own folder, never in the shared one."""
+    # "//" prefix = absolute path in Claude Code permission rules.
+    shared = "//" + shared_dir.resolve().as_posix().lstrip("/")
+    return {
+        "permissions": {
+            "allow": ["Read", "Glob", "Grep", "Edit", "Write", f"mcp__{MCP_SERVER_NAME}__*"],
+            "deny": ["SendMessage", "ListAgents", "Bash", f"Edit({shared}/**)", f"Write({shared}/**)"],
+        },
+        "crossSessionInbound": "refuse",
+    }
 
 
 def hash_token(token: str) -> str:
@@ -200,21 +205,21 @@ def spawn_argv(
         "--permission-mode", "dontAsk",
         "--session-id", session_uuid,
         "--name", worker,
-        "--settings", json.dumps(LOCKDOWN_SETTINGS),
+        "--settings", json.dumps(lockdown_settings(shared_dir)),
         "--mcp-config", json.dumps(lockdown_mcp_config(session_uuid[:8], api_url, token)),
         "--add-dir", str(shared_dir),
         f"Read CLAUDE.md and ../_shared/COMMS.md, then: {task}",
     ]
 
 
-def write_lockdown_settings(worker_folder: Path) -> None:
+def write_lockdown_settings(worker_folder: Path, shared_dir: Path) -> None:
     """The spec's per-worker settings.json, for anyone running `claude` in the
     folder by hand. Never overwrites a hand-curated one (e.g. app-master)."""
     settings = worker_folder / ".claude" / "settings.json"
     if settings.exists():
         return
     settings.parent.mkdir(parents=True, exist_ok=True)
-    settings.write_text(json.dumps(LOCKDOWN_SETTINGS, indent=2) + "\n", encoding="utf-8")
+    settings.write_text(json.dumps(lockdown_settings(shared_dir), indent=2) + "\n", encoding="utf-8")
 
 
 def default_spawn_fn(argv: list[str], cwd: Path) -> str:
@@ -448,7 +453,7 @@ def create_app(
         session_id = session_uuid[:8]
         token = secrets.token_urlsafe(32)
         shared_dir.mkdir(exist_ok=True)
-        write_lockdown_settings(worker_folder)
+        write_lockdown_settings(worker_folder, shared_dir)
         argv = spawn_argv(body.worker, body.task, session_uuid, token, shared_dir, api_url)
         printed_id = parse_spawned_id(spawn(argv, worker_folder))
         if printed_id != session_id:

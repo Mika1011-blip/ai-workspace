@@ -161,10 +161,30 @@ class TestSpawnLockdown:
         _, argv, _ = self._spawn_argv(client, workers_dir)
         settings = json.loads(argv[argv.index("--settings") + 1])
 
-        for tool in ("SendMessage", "ListAgents", "Edit", "Write", "Bash"):
+        for tool in ("SendMessage", "ListAgents", "Bash"):
             assert tool in settings["permissions"]["deny"]
         assert settings["crossSessionInbound"] == "refuse"
         assert "mcp__ai-workspace__*" in settings["permissions"]["allow"]
+
+    def test_may_write_in_its_own_folder_but_not_in_shared(self, client, workers_dir):
+        _, argv, _ = self._spawn_argv(client, workers_dir)
+        settings = json.loads(argv[argv.index("--settings") + 1])
+        shared = "//" + (workers_dir / "_shared").resolve().as_posix().lstrip("/")
+
+        # --restricted already confines the file tools to cwd + --add-dir; this
+        # grants writing there, then takes _shared back out of the writable set.
+        assert "Edit" in settings["permissions"]["allow"]
+        assert "Write" in settings["permissions"]["allow"]
+        assert f"Edit({shared}/**)" in settings["permissions"]["deny"]
+        assert f"Write({shared}/**)" in settings["permissions"]["deny"]
+        assert "Edit" not in settings["permissions"]["deny"]
+        assert "Write" not in settings["permissions"]["deny"]
+
+        # The spec's on-disk settings.json says the same thing.
+        written = json.loads(
+            (workers_dir / "researcher" / ".claude" / "settings.json").read_text(encoding="utf-8")
+        )
+        assert written == settings
 
     def test_only_our_mcp_server_with_its_own_session_id(self, client, workers_dir):
         sid, argv, _ = self._spawn_argv(client, workers_dir)

@@ -84,3 +84,4 @@
 - 2026-10-27 19:10:27 — commit b1a2025 Per-worker activity log: a timeline next to the run records
 - 2026-10-27 19:14:28 — commit 2b3db30 Crew lifecycle as a script: worktree per worker, deterministic books
 - 2026-10-27 19:48:36 — commit 111701f Add the animation-studio contract
+- 2026-10-27 19:53:47 — commit c68b76b Let app workers write inside their own folder, never in _shared
