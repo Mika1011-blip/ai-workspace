@@ -178,9 +178,11 @@
           el("button", { class: "secondary", onclick: async () => { try { await api("PATCH", `/projects/${slug}`, { mode: p.mode === "auto" ? "guided" : "auto" }); renderProject(slug); } catch (e) { showError(e.message); } } }, `Switch to ${p.mode === "auto" ? "guided" : "auto"}`),
           el("button", { class: "secondary", onclick: async () => { if (!confirm(`Delete project "${p.title}" and everything in it?`)) return; try { await api("DELETE", `/projects/${slug}`); location.hash = "#/"; } catch (e) { showError(e.message); } } }, "Delete")));
 
+      const download = el("p", {}, el("a", { href: `/projects/${slug}/download`, download: `${slug}.zip` }, "⬇ Download everything (zip)"),
+        el("span", { class: "status" }, " — script, storyboard, assets, logs, final video and preview."));
       const final = p.has_final
-        ? el("div", {}, el("h3", {}, "Final video"), el("video", { controls: "", src: `/projects/${slug}/final.mp4`, poster: p.has_preview ? `/projects/${slug}/preview.jpg` : null }))
-        : el("p", { class: "status" }, "No final video yet.");
+        ? el("div", {}, el("h3", {}, "Final video"), el("video", { controls: "", src: `/projects/${slug}/final.mp4`, poster: p.has_preview ? `/projects/${slug}/preview.jpg` : null }), download)
+        : el("div", {}, el("p", { class: "status" }, "No final video yet."), download);
 
       let checkpoint = "";
       if (p.status === "awaiting_approval") {

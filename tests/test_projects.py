@@ -189,6 +189,32 @@ class TestArtifactServing:
         assert preview.status_code == 200 and preview.headers["content-type"] == "image/jpeg"
 
 
+class TestDownload:
+    def test_zip_holds_the_whole_project_under_its_slug(self, client, projects_dir):
+        import io
+        import zipfile
+
+        create(client)
+        put_artifact(projects_dir, "first-reel", "01-script.md", "# script", sidecar={"kind": "script", "description": "d"})
+        (projects_dir / "first-reel" / "artifacts" / "07-render").mkdir()
+        (projects_dir / "first-reel" / "artifacts" / "07-render" / "plan.json").write_text("{}", encoding="utf-8")
+        (projects_dir / "first-reel" / "final.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42")
+
+        res = client.get("/projects/first-reel/download")
+
+        assert res.status_code == 200
+        assert res.headers["content-type"] == "application/zip"
+        assert res.headers["content-disposition"] == 'attachment; filename="first-reel.zip"'
+        names = set(zipfile.ZipFile(io.BytesIO(res.content)).namelist())
+        assert {"first-reel/project.json", "first-reel/artifacts/01-script.md", "first-reel/artifacts/01-script.md.json",
+                "first-reel/artifacts/07-render/plan.json", "first-reel/final.mp4"} <= names
+        assert all(n.startswith("first-reel/") for n in names)
+
+    def test_unknown_and_invalid_slugs(self, client):
+        assert client.get("/projects/nope/download").status_code == 404
+        assert client.get("/projects/Bad%20Name/download").status_code == 400
+
+
 class TestExport:
     def test_copies_the_whole_folder(self, client, projects_dir, tmp_path):
         create(client)
