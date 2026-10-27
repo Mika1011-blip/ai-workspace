@@ -16,7 +16,7 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app import activity, run_records, sessions_store
+from app import activity, projects, run_records, sessions_store
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -99,6 +99,23 @@ class ResultReport(BaseModel):
     tags: list[str] = []
     metrics: dict = {}
     error: str | None = None
+
+
+class ProjectCreate(BaseModel):
+    slug: str
+    title: str
+    format: str
+    renderer: str = "ffmpeg"
+    mode: str = "guided"
+
+
+class ProjectPatch(BaseModel):
+    title: str | None = None
+    mode: str | None = None
+
+
+class ExportRequest(BaseModel):
+    dest_dir: str
 
 
 class MessageCreate(BaseModel):
@@ -321,12 +338,22 @@ def create_app(
     sessions_db_path = Path(sessions_db or os.environ.get("SESSIONS_DB", "data/sessions.db"))
     sessions_store.init_db(sessions_db_path)
     run_records.init_table(sessions_db_path)
+    projects.init_table(sessions_db_path)
     messages_log_path = Path(messages_log or os.environ.get("MESSAGES_LOG", "runs/messages.jsonl"))
     messages_log_path.parent.mkdir(parents=True, exist_ok=True)
     api_url = api_url or os.environ.get("WORKSPACE_API_URL", "http://localhost:8000")
     shared_dir = workers_path / "_shared"
     projects_path = Path(projects_dir or os.environ.get("PROJECTS_DIR", "projects"))
     projects_path.mkdir(parents=True, exist_ok=True)
+    projects.reindex(sessions_db_path, projects_path)
+
+    def project_or_404(slug: str) -> tuple[Path, dict]:
+        validate_name(slug)
+        folder = projects_path / slug
+        manifest = projects.read_manifest(folder)
+        if manifest is None:
+            raise HTTPException(status_code=404, detail=f"Project '{slug}' not found")
+        return folder, manifest
 
     def resolve_grant(raw: str) -> Path:
         """A grantable directory: an existing folder under workers/ or
@@ -643,6 +670,115 @@ def create_app(
         if not (workers_path / name / "CLAUDE.md").is_file():
             raise HTTPException(status_code=404, detail=f"Worker '{name}' not found")
         return activity.tail(workers_path, name, max(1, min(limit, 1000)))
+
+    @app.post("/projects", status_code=201)
+    def create_project(body: ProjectCreate) -> dict:
+        validate_name(body.slug)
+        validate_name(body.format)
+        if body.renderer not in projects.RENDERERS:
+            raise HTTPException(status_code=400, detail=f"bad_renderer: one of {sorted(projects.RENDERERS)}")
+        if body.mode not in projects.MODES:
+            raise HTTPException(status_code=400, detail=f"bad_mode: one of {sorted(projects.MODES)}")
+        if not body.title.strip():
+            raise HTTPException(status_code=400, detail="title must not be empty")
+        folder = projects_path / body.slug
+        manifest = projects.new_manifest(
+            body.slug, body.title.strip(), body.format, body.renderer, body.mode, datetime.now(timezone.utc)
+        )
+        try:
+            projects.create(folder, manifest)
+        except FileExistsError:
+            raise HTTPException(status_code=409, detail=f"Project '{body.slug}' already exists")
+        projects.upsert(sessions_db_path, manifest, folder)
+        return manifest
+
+    @app.get("/projects")
+    def list_projects() -> list[dict]:
+        out = []
+        for row in projects.list_all(sessions_db_path):
+            folder = projects_path / row["slug"]
+            out.append(
+                {
+                    **{k: row[k] for k in ("slug", "title", "format", "renderer", "mode", "status", "stage", "updated_at")},
+                    "has_preview": (folder / projects.PREVIEW).is_file(),
+                    "has_final": (folder / projects.FINAL).is_file(),
+                }
+            )
+        return out
+
+    @app.get("/projects/{slug}")
+    def get_project(slug: str) -> dict:
+        folder, manifest = project_or_404(slug)
+        return {
+            **manifest,
+            "artifacts": projects.artifacts(folder),
+            "decisions": projects.decisions(folder),
+            "has_preview": (folder / projects.PREVIEW).is_file(),
+            "has_final": (folder / projects.FINAL).is_file(),
+        }
+
+    @app.patch("/projects/{slug}")
+    def patch_project(body: ProjectPatch, slug: str) -> dict:
+        folder, manifest = project_or_404(slug)
+        if body.mode is not None:
+            if body.mode not in projects.MODES:
+                raise HTTPException(status_code=400, detail=f"bad_mode: one of {sorted(projects.MODES)}")
+            manifest["mode"] = body.mode
+        if body.title is not None:
+            if not body.title.strip():
+                raise HTTPException(status_code=400, detail="title must not be empty")
+            manifest["title"] = body.title.strip()
+        projects.write_manifest(folder, manifest, datetime.now(timezone.utc))
+        projects.upsert(sessions_db_path, manifest, folder)
+        return manifest
+
+    @app.delete("/projects/{slug}", status_code=204)
+    def delete_project(slug: str) -> None:
+        folder, _ = project_or_404(slug)
+        try:
+            shutil.rmtree(folder)
+        except OSError:
+            raise HTTPException(
+                status_code=409,
+                detail=f"project_busy: a process still holds '{slug}'; end its sessions and retry",
+            )
+        projects.remove(sessions_db_path, slug)
+
+    @app.get("/projects/{slug}/artifacts/{path:path}")
+    def get_artifact(slug: str, path: str) -> FileResponse:
+        folder, _ = project_or_404(slug)
+        real = projects.safe_artifact_path(folder, path)
+        if real is None:
+            raise HTTPException(status_code=404, detail="artifact not found")
+        return FileResponse(real)
+
+    @app.get("/projects/{slug}/final.mp4")
+    def get_final(slug: str) -> FileResponse:
+        folder, _ = project_or_404(slug)
+        if not (folder / projects.FINAL).is_file():
+            raise HTTPException(status_code=404, detail="not published")
+        return FileResponse(folder / projects.FINAL, media_type="video/mp4")
+
+    @app.get("/projects/{slug}/preview.jpg")
+    def get_preview(slug: str) -> FileResponse:
+        folder, _ = project_or_404(slug)
+        if not (folder / projects.PREVIEW).is_file():
+            raise HTTPException(status_code=404, detail="no preview")
+        return FileResponse(folder / projects.PREVIEW, media_type="image/jpeg")
+
+    @app.post("/projects/{slug}/export")
+    def export_project(body: ExportRequest, slug: str) -> dict:
+        folder, _ = project_or_404(slug)
+        dest = Path(body.dest_dir)
+        if not dest.is_absolute() or not dest.is_dir():
+            raise HTTPException(status_code=400, detail="dest_dir must be an existing absolute directory")
+        if projects_path.resolve() in dest.resolve().parents or dest.resolve() == projects_path.resolve():
+            raise HTTPException(status_code=400, detail="dest_dir must be outside projects/")
+        try:
+            target = projects.export(folder, dest)
+        except FileExistsError as exc:
+            raise HTTPException(status_code=409, detail=f"already exists: {exc}")
+        return {"exported_to": str(target)}
 
     @app.get("/runs")
     def list_runs(
