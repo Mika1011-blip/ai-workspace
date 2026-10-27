@@ -1,7 +1,7 @@
 # ai-news-digest
 
 ## Role
-A morning briefing agent that summarizes the day's most important AI news.
+A morning briefing worker that summarizes the day's most important AI news.
 
 ## What it does
 - When run (e.g. each morning), finds and summarizes the 5 most important

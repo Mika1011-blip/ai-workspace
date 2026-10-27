@@ -79,3 +79,4 @@
 - 2026-10-27 18:29:59 — commit 752baf8 Prove the sender: per-session token on list_sessions and send_to_session
 - 2026-10-27 18:31:55 — commit 50c09ab One MCP server name everywhere; README for first run on a new machine
 - 2026-10-27 18:35:27 — commit 8006d96 Create agents in one call; refresh the editor from the saved response
+- 2026-10-27 19:01:31 — commit af59662 Rename agents to workers everywhere

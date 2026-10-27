@@ -18,7 +18,7 @@ def init_db(db_path: Path) -> None:
             """
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
-                agent TEXT NOT NULL,
+                worker TEXT NOT NULL,
                 status TEXT NOT NULL,
                 spawned_by TEXT,
                 started_at TEXT NOT NULL,
@@ -33,18 +33,21 @@ def init_db(db_path: Path) -> None:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
         if "token_hash" not in columns:
             conn.execute("ALTER TABLE sessions ADD COLUMN token_hash TEXT")
+        # Databases from before the workers -> workers rename.
+        if "agent" in columns and "worker" not in columns:
+            conn.execute("ALTER TABLE sessions RENAME COLUMN agent TO worker")
         conn.commit()
     finally:
         conn.close()
 
 
-COLUMNS = "session_id, agent, status, spawned_by, started_at, ended_at, may_talk_to, token_hash"
+COLUMNS = "session_id, worker, status, spawned_by, started_at, ended_at, may_talk_to, token_hash"
 
 
 def _row_to_dict(row) -> dict:
     return {
         "session_id": row[0],
-        "agent": row[1],
+        "worker": row[1],
         "status": row[2],
         "spawned_by": row[3],
         "started_at": row[4],
@@ -57,7 +60,7 @@ def _row_to_dict(row) -> dict:
 def insert_session(
     db_path: Path,
     session_id: str,
-    agent: str,
+    worker: str,
     spawned_by: str | None,
     started_at: str,
     may_talk_to: list[str],
@@ -70,7 +73,7 @@ def insert_session(
             INSERT INTO sessions ({COLUMNS})
             VALUES (?, ?, 'live', ?, ?, NULL, ?, ?)
             """,
-            (session_id, agent, spawned_by, started_at, json.dumps(may_talk_to), token_hash),
+            (session_id, worker, spawned_by, started_at, json.dumps(may_talk_to), token_hash),
         )
         conn.commit()
     finally:

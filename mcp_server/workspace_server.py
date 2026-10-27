@@ -1,7 +1,7 @@
-"""MCP server exposing the ai-workspace agents API as tools for Claude.
+"""MCP server exposing the ai-workspace workers API as tools for Claude.
 
 Talks to the running FastAPI app over HTTP only; never reads or writes
-`agents/` or `agent_templates/` on disk directly.
+`workers/` or `worker_templates/` on disk directly.
 """
 
 import os
@@ -20,52 +20,52 @@ def _auth() -> dict:
     return {"X-Session-Token": SESSION_TOKEN}
 
 # One name everywhere -- root .mcp.json, app-master's .mcp.json, the API's
-# --mcp-config, and the mcp__agent-workspace__* prefix in every allow list.
-mcp = FastMCP("agent-workspace")
+# --mcp-config, and the mcp__ai-workspace__* prefix in every allow list.
+mcp = FastMCP("ai-workspace")
 
 
 @mcp.tool
-def list_agents() -> list[dict]:
-    """List every agent in the workspace.
+def list_workers() -> list[dict]:
+    """List every worker in the workspace.
 
-    Calls GET /agents on the ai-workspace API and returns each agent's name
+    Calls GET /workers on the ai-workspace API and returns each worker's name
     and current instructions (the contents of its CLAUDE.md). Use this to
-    see what agents already exist, e.g. before creating a new one.
+    see what workers already exist, e.g. before creating a new one.
     """
-    response = httpx.get(f"{API_BASE_URL}/agents")
+    response = httpx.get(f"{API_BASE_URL}/workers")
     response.raise_for_status()
     return response.json()
 
 
 @mcp.tool
-def list_agent_names() -> list[str]:
-    """List just the names of every agent in the workspace.
+def list_worker_names() -> list[str]:
+    """List just the names of every worker in the workspace.
 
-    Calls GET /agents and returns only the `name` field of each entry, to
-    check whether a proposed name is taken without pulling every agent's
-    full CLAUDE.md into context (use `list_agents` instead if you need the
+    Calls GET /workers and returns only the `name` field of each entry, to
+    check whether a proposed name is taken without pulling every worker's
+    full CLAUDE.md into context (use `list_workers` instead if you need the
     instructions too).
     """
-    response = httpx.get(f"{API_BASE_URL}/agents")
+    response = httpx.get(f"{API_BASE_URL}/workers")
     response.raise_for_status()
-    return [agent["name"] for agent in response.json()]
+    return [worker["name"] for worker in response.json()]
 
 
 @mcp.tool
-def create_agent(name: str, instructions: str) -> dict:
-    """Create a new agent with the given name and instructions.
+def create_worker(name: str, instructions: str) -> dict:
+    """Create a new worker with the given name and instructions.
 
     `name` must be lowercase letters, digits and hyphens only (1-40
-    characters) to match the workspace's agent-name rules. `instructions`
-    becomes the full contents of the new agent's CLAUDE.md.
+    characters) to match the workspace's worker-name rules. `instructions`
+    becomes the full contents of the new worker's CLAUDE.md.
 
-    Calls POST /agents once with both fields and returns the created
-    agent's name and instructions. One call, so a failure can't leave a
-    half-made agent behind. Raises an error if an agent with that name
+    Calls POST /workers once with both fields and returns the created
+    worker's name and instructions. One call, so a failure can't leave a
+    half-made worker behind. Raises an error if a worker with that name
     already exists, or if the name or instructions are invalid.
     """
     response = httpx.post(
-        f"{API_BASE_URL}/agents", json={"name": name, "instructions": instructions}
+        f"{API_BASE_URL}/workers", json={"name": name, "instructions": instructions}
     )
     response.raise_for_status()
     return response.json()
@@ -73,7 +73,7 @@ def create_agent(name: str, instructions: str) -> dict:
 
 @mcp.tool
 def list_templates() -> list[dict]:
-    """List every agent template available in the workspace.
+    """List every worker template available in the workspace.
 
     Calls GET /templates and returns each template's name and one-line
     description. Use this to see what starting points exist before picking
@@ -86,7 +86,7 @@ def list_templates() -> list[dict]:
 
 @mcp.tool
 def get_template(name: str) -> dict:
-    """Fetch the raw CLAUDE.md content of one agent template.
+    """Fetch the raw CLAUDE.md content of one worker template.
 
     `name` is the template's name as returned by `list_templates` (matches
     `^[a-z0-9-]{1,40}$`). Calls GET /templates/{name} and returns
@@ -99,30 +99,30 @@ def get_template(name: str) -> dict:
 
 @mcp.tool
 def update_claude_md(name: str, instructions: str) -> dict:
-    """Replace an existing agent's CLAUDE.md with new instructions.
+    """Replace an existing worker's CLAUDE.md with new instructions.
 
     `name` must match `^[a-z0-9-]{1,40}$` and must already exist (create it
-    first with `create_agent`). Calls PUT /agents/{name} and returns the
-    agent's name and final instructions. Raises an error if the agent does
+    first with `create_worker`). Calls PUT /workers/{name} and returns the
+    worker's name and final instructions. Raises an error if the worker does
     not exist or the name/instructions are invalid.
     """
-    response = httpx.put(f"{API_BASE_URL}/agents/{name}", json={"instructions": instructions})
+    response = httpx.put(f"{API_BASE_URL}/workers/{name}", json={"instructions": instructions})
     response.raise_for_status()
     return response.json()
 
 
 @mcp.tool
 def write_skill(name: str, skill_name: str, content: str) -> dict:
-    """Write a skill file for an existing agent.
+    """Write a skill file for an existing worker.
 
-    `name` is the agent's name and `skill_name` is the skill's name, both
-    matching `^[a-z0-9-]{1,40}$`. Calls POST /agents/{name}/skills with
+    `name` is the worker's name and `skill_name` is the skill's name, both
+    matching `^[a-z0-9-]{1,40}$`. Calls POST /workers/{name}/skills with
     `{"skill_name": skill_name, "content": content}`, which writes
-    `agents/{name}/.claude/skills/{skill_name}/SKILL.md`. Raises an error if
-    the agent does not exist or either name is invalid.
+    `workers/{name}/.claude/skills/{skill_name}/SKILL.md`. Raises an error if
+    the worker does not exist or either name is invalid.
     """
     response = httpx.post(
-        f"{API_BASE_URL}/agents/{name}/skills",
+        f"{API_BASE_URL}/workers/{name}/skills",
         json={"skill_name": skill_name, "content": content},
     )
     response.raise_for_status()
@@ -132,31 +132,31 @@ def write_skill(name: str, skill_name: str, content: str) -> dict:
 
 
 @mcp.tool
-def delete_agent(name: str) -> dict:
-    """Delete an agent and everything in its folder.
+def delete_worker(name: str) -> dict:
+    """Delete a worker and everything in its folder.
 
     `name` must match `^[a-z0-9-]{1,40}$` and must already exist. Calls
-    DELETE /agents/{name}, which removes the agent's CLAUDE.md and any
+    DELETE /workers/{name}, which removes the worker's CLAUDE.md and any
     skills written under it. Irreversible — there is no undo. Raises an
-    error if the agent does not exist or the name is invalid.
+    error if the worker does not exist or the name is invalid.
     """
-    response = httpx.delete(f"{API_BASE_URL}/agents/{name}")
+    response = httpx.delete(f"{API_BASE_URL}/workers/{name}")
     response.raise_for_status()
     return {"deleted": name}
 
 
 @mcp.tool
-def spawn_session(agent: str, task: str) -> dict:
-    """Spawn a new background session for an existing agent.
+def spawn_session(worker: str, task: str) -> dict:
+    """Spawn a new background session for an existing worker.
 
-    `agent` must match `^[a-z0-9-]{1,40}$` and must already exist. Calls
-    POST /sessions with `{"agent": agent, "task": task, "spawned_by":
-    SESSION_ID}` and returns the new session's id, agent, and status.
-    Raises an error if the agent does not exist or the name is invalid.
+    `worker` must match `^[a-z0-9-]{1,40}$` and must already exist. Calls
+    POST /sessions with `{"worker": worker, "task": task, "spawned_by":
+    SESSION_ID}` and returns the new session's id, worker, and status.
+    Raises an error if the worker does not exist or the name is invalid.
     """
     response = httpx.post(
         f"{API_BASE_URL}/sessions",
-        json={"agent": agent, "task": task, "spawned_by": SESSION_ID},
+        json={"worker": worker, "task": task, "spawned_by": SESSION_ID},
     )
     response.raise_for_status()
     return response.json()

@@ -28,7 +28,7 @@ class FakeResponse:
             )
 
 
-def test_list_agent_names_returns_only_names(monkeypatch):
+def test_list_worker_names_returns_only_names(monkeypatch):
     calls = []
 
     def fake_get(url):
@@ -43,20 +43,20 @@ def test_list_agent_names_returns_only_names(monkeypatch):
 
     monkeypatch.setattr(ws.httpx, "get", fake_get)
 
-    result = ws.list_agent_names()
+    result = ws.list_worker_names()
 
-    assert calls == [f"{ws.API_BASE_URL}/agents"]
+    assert calls == [f"{ws.API_BASE_URL}/workers"]
     assert result == ["time-teller", "nonsense-generator"]
 
 
-def test_list_agent_names_propagates_errors(monkeypatch):
+def test_list_worker_names_propagates_errors(monkeypatch):
     monkeypatch.setattr(ws.httpx, "get", lambda url: FakeResponse(500))
 
     with pytest.raises(httpx.HTTPStatusError):
-        ws.list_agent_names()
+        ws.list_worker_names()
 
 
-def test_create_agent_is_a_single_post(monkeypatch):
+def test_create_worker_is_a_single_post(monkeypatch):
     calls = []
 
     def fake_post(url, json):
@@ -64,22 +64,22 @@ def test_create_agent_is_a_single_post(monkeypatch):
         return FakeResponse(201, {"name": "researcher", "instructions": json["instructions"]})
 
     def no_put(*args, **kwargs):
-        raise AssertionError("create_agent must not follow up with a PUT")
+        raise AssertionError("create_worker must not follow up with a PUT")
 
     monkeypatch.setattr(ws.httpx, "post", fake_post)
     monkeypatch.setattr(ws.httpx, "put", no_put)
 
-    result = ws.create_agent("researcher", "# researcher\n")
+    result = ws.create_worker("researcher", "# researcher\n")
 
-    assert calls == [(f"{ws.API_BASE_URL}/agents", {"name": "researcher", "instructions": "# researcher\n"})]
+    assert calls == [(f"{ws.API_BASE_URL}/workers", {"name": "researcher", "instructions": "# researcher\n"})]
     assert result == {"name": "researcher", "instructions": "# researcher\n"}
 
 
-def test_create_agent_raises_on_duplicate_name(monkeypatch):
+def test_create_worker_raises_on_duplicate_name(monkeypatch):
     monkeypatch.setattr(ws.httpx, "post", lambda url, json: FakeResponse(409))
 
     with pytest.raises(httpx.HTTPStatusError):
-        ws.create_agent("researcher", "# researcher\n")
+        ws.create_worker("researcher", "# researcher\n")
 
 
 def test_list_templates_returns_api_payload(monkeypatch):
@@ -87,14 +87,14 @@ def test_list_templates_returns_api_payload(monkeypatch):
 
     def fake_get(url):
         calls.append(url)
-        return FakeResponse(200, [{"name": "basic", "description": "A basic agent."}])
+        return FakeResponse(200, [{"name": "basic", "description": "A basic worker."}])
 
     monkeypatch.setattr(ws.httpx, "get", fake_get)
 
     result = ws.list_templates()
 
     assert calls == [f"{ws.API_BASE_URL}/templates"]
-    assert result == [{"name": "basic", "description": "A basic agent."}]
+    assert result == [{"name": "basic", "description": "A basic worker."}]
 
 
 def test_list_templates_propagates_errors(monkeypatch):
@@ -151,11 +151,11 @@ def test_update_claude_md_puts_instructions(monkeypatch):
 
     result = ws.update_claude_md("time-teller", "# time-teller\n")
 
-    assert calls == [(f"{ws.API_BASE_URL}/agents/time-teller", {"instructions": "# time-teller\n"})]
+    assert calls == [(f"{ws.API_BASE_URL}/workers/time-teller", {"instructions": "# time-teller\n"})]
     assert result == {"name": "time-teller", "instructions": "# time-teller\n"}
 
 
-def test_update_claude_md_raises_on_missing_agent(monkeypatch):
+def test_update_claude_md_raises_on_missing_worker(monkeypatch):
     monkeypatch.setattr(ws.httpx, "put", lambda url, json: FakeResponse(404))
 
     with pytest.raises(httpx.HTTPStatusError):
@@ -182,14 +182,14 @@ def test_write_skill_posts_skill_body(monkeypatch):
 
     assert calls == [
         (
-            f"{ws.API_BASE_URL}/agents/time-teller/skills",
+            f"{ws.API_BASE_URL}/workers/time-teller/skills",
             {"skill_name": "tz-lookup", "content": "# tz-lookup\n"},
         )
     ]
     assert result == {"ok": True}
 
 
-def test_write_skill_raises_on_missing_agent(monkeypatch):
+def test_write_skill_raises_on_missing_worker(monkeypatch):
     monkeypatch.setattr(ws.httpx, "post", lambda url, json: FakeResponse(404))
 
     with pytest.raises(httpx.HTTPStatusError):
@@ -213,7 +213,7 @@ def test_write_skill_handles_empty_response_body(monkeypatch):
     assert result == {"status_code": 201}
 
 
-def test_delete_agent_calls_delete_endpoint(monkeypatch):
+def test_delete_worker_calls_delete_endpoint(monkeypatch):
     calls = []
 
     def fake_delete(url):
@@ -222,33 +222,33 @@ def test_delete_agent_calls_delete_endpoint(monkeypatch):
 
     monkeypatch.setattr(ws.httpx, "delete", fake_delete)
 
-    result = ws.delete_agent("time-teller")
+    result = ws.delete_worker("time-teller")
 
-    assert calls == [f"{ws.API_BASE_URL}/agents/time-teller"]
+    assert calls == [f"{ws.API_BASE_URL}/workers/time-teller"]
     assert result == {"deleted": "time-teller"}
 
 
-def test_delete_agent_raises_on_missing_agent(monkeypatch):
+def test_delete_worker_raises_on_missing_worker(monkeypatch):
     monkeypatch.setattr(ws.httpx, "delete", lambda url: FakeResponse(404))
 
     with pytest.raises(httpx.HTTPStatusError):
-        ws.delete_agent("does-not-exist")
+        ws.delete_worker("does-not-exist")
 
 
-def test_delete_agent_raises_on_invalid_name(monkeypatch):
+def test_delete_worker_raises_on_invalid_name(monkeypatch):
     monkeypatch.setattr(ws.httpx, "delete", lambda url: FakeResponse(400))
 
     with pytest.raises(httpx.HTTPStatusError):
-        ws.delete_agent("Bad Name")
+        ws.delete_worker("Bad Name")
 
 
-def test_spawn_session_posts_agent_and_task(monkeypatch):
+def test_spawn_session_posts_worker_and_task(monkeypatch):
     calls = []
     monkeypatch.setattr(ws, "SESSION_ID", "caller-1")
 
     def fake_post(url, json):
         calls.append((url, json))
-        return FakeResponse(201, {"session_id": "sess-1", "agent": "researcher", "status": "live"})
+        return FakeResponse(201, {"session_id": "sess-1", "worker": "researcher", "status": "live"})
 
     monkeypatch.setattr(ws.httpx, "post", fake_post)
 
@@ -257,13 +257,13 @@ def test_spawn_session_posts_agent_and_task(monkeypatch):
     assert calls == [
         (
             f"{ws.API_BASE_URL}/sessions",
-            {"agent": "researcher", "task": "find today's news", "spawned_by": "caller-1"},
+            {"worker": "researcher", "task": "find today's news", "spawned_by": "caller-1"},
         )
     ]
-    assert result == {"session_id": "sess-1", "agent": "researcher", "status": "live"}
+    assert result == {"session_id": "sess-1", "worker": "researcher", "status": "live"}
 
 
-def test_spawn_session_raises_on_unknown_agent(monkeypatch):
+def test_spawn_session_raises_on_unknown_worker(monkeypatch):
     monkeypatch.setattr(ws.httpx, "post", lambda url, json: FakeResponse(404))
 
     with pytest.raises(httpx.HTTPStatusError):

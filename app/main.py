@@ -22,7 +22,7 @@ from app import sessions_store
 STATIC_DIR = Path(__file__).parent / "static"
 
 # Lowercase letters, digits and hyphens, 1-40 characters total. Rejecting
-# everything else also keeps names from escaping the agents folder, since a
+# everything else also keeps names from escaping the workers folder, since a
 # match can never contain "." or "/".
 NAME_PATTERN = r"^[a-z0-9-]{1,40}$"
 
@@ -31,20 +31,20 @@ def validate_name(name: str) -> None:
     if not re.fullmatch(NAME_PATTERN, name):
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid agent name {name!r}: must match {NAME_PATTERN}",
+            detail=f"Invalid worker name {name!r}: must match {NAME_PATTERN}",
         )
 
 
-class AgentCreate(BaseModel):
+class WorkerCreate(BaseModel):
     name: str
     instructions: str | None = None
 
 
-class AgentUpdate(BaseModel):
+class WorkerUpdate(BaseModel):
     instructions: str
 
 
-class Agent(BaseModel):
+class Worker(BaseModel):
     name: str
     instructions: str
 
@@ -69,7 +69,7 @@ class Skill(BaseModel):
 
 
 class SessionCreate(BaseModel):
-    agent: str
+    worker: str
     task: str
     spawned_by: str | None = None
     may_talk_to: list[str] = []
@@ -77,7 +77,7 @@ class SessionCreate(BaseModel):
 
 class Session(BaseModel):
     session_id: str
-    agent: str
+    worker: str
     status: str
     spawned_by: str | None
     started_at: str
@@ -93,7 +93,7 @@ class MessageCreate(BaseModel):
 
 
 def starter_instructions(name: str) -> str:
-    return f"# {name}\n\nDescribe what this agent does and how it should work.\n"
+    return f"# {name}\n\nDescribe what this worker does and how it should work.\n"
 
 
 def parse_template(text: str) -> tuple[str, str]:
@@ -101,9 +101,9 @@ def parse_template(text: str) -> tuple[str, str]:
 
     Templates start with a `---`-delimited frontmatter block holding a single
     `description: ...` line, followed by the body that becomes the new
-    agent's starter CLAUDE.md verbatim. Missing/malformed frontmatter falls
+    worker's starter CLAUDE.md verbatim. Missing/malformed frontmatter falls
     back to an empty description and the whole text as the body, rather than
-    raising -- template files are trusted content from `agent_templates/`.
+    raising -- template files are trusted content from `worker_templates/`.
     """
     if text.startswith("---\n"):
         end = text.find("\n---", 4)
@@ -127,12 +127,12 @@ def claude_cli() -> str:
     return path
 
 
-MCP_SERVER_NAME = "agent-workspace"
+MCP_SERVER_NAME = "ai-workspace"
 MCP_SERVER_PATH = Path(__file__).resolve().parents[1] / "mcp_server" / "workspace_server.py"
 
 # The wall, as the API enforces it on every spawned app session. Mirrors
 # docs/comms-protocol.md §5: Claude Code's own messaging is closed, and the
-# file tools can't touch anything but the agent's folder and agents/_shared.
+# file tools can't touch anything but the worker's folder and workers/_shared.
 LOCKDOWN_SETTINGS = {
     "permissions": {
         "allow": ["Read", "Glob", "Grep", f"mcp__{MCP_SERVER_NAME}__*"],
@@ -172,7 +172,7 @@ def lockdown_mcp_config(session_id: str, api_url: str, token: str) -> dict:
 
 
 def spawn_argv(
-    agent: str, task: str, session_uuid: str, token: str, shared_dir: Path, api_url: str
+    worker: str, task: str, session_uuid: str, token: str, shared_dir: Path, api_url: str
 ) -> list[str]:
     """The exact command for one locked-down app session.
 
@@ -188,7 +188,7 @@ def spawn_argv(
         "--strict-mcp-config",
         "--permission-mode", "dontAsk",
         "--session-id", session_uuid,
-        "--name", agent,
+        "--name", worker,
         "--settings", json.dumps(LOCKDOWN_SETTINGS),
         "--mcp-config", json.dumps(lockdown_mcp_config(session_uuid[:8], api_url, token)),
         "--add-dir", str(shared_dir),
@@ -196,10 +196,10 @@ def spawn_argv(
     ]
 
 
-def write_lockdown_settings(agent_folder: Path) -> None:
-    """The spec's per-agent settings.json, for anyone running `claude` in the
+def write_lockdown_settings(worker_folder: Path) -> None:
+    """The spec's per-worker settings.json, for anyone running `claude` in the
     folder by hand. Never overwrites a hand-curated one (e.g. app-master)."""
-    settings = agent_folder / ".claude" / "settings.json"
+    settings = worker_folder / ".claude" / "settings.json"
     if settings.exists():
         return
     settings.parent.mkdir(parents=True, exist_ok=True)
@@ -238,7 +238,7 @@ def default_running_ids_fn() -> set[str] | None:
 
 
 def create_app(
-    agents_dir: Path | str | None = None,
+    workers_dir: Path | str | None = None,
     templates_dir: Path | str | None = None,
     sessions_db: Path | str | None = None,
     messages_log: Path | str | None = None,
@@ -248,15 +248,15 @@ def create_app(
     stop_fn: Callable[[str], None] | None = None,
     running_ids_fn: Callable[[], set[str] | None] | None = None,
 ) -> FastAPI:
-    agents_path = Path(agents_dir or os.environ.get("AGENTS_DIR", "agents"))
-    agents_path.mkdir(parents=True, exist_ok=True)
-    templates_path = Path(templates_dir or os.environ.get("TEMPLATES_DIR", "agent_templates"))
+    workers_path = Path(workers_dir or os.environ.get("WORKERS_DIR", "workers"))
+    workers_path.mkdir(parents=True, exist_ok=True)
+    templates_path = Path(templates_dir or os.environ.get("TEMPLATES_DIR", "worker_templates"))
     sessions_db_path = Path(sessions_db or os.environ.get("SESSIONS_DB", "data/sessions.db"))
     sessions_store.init_db(sessions_db_path)
     messages_log_path = Path(messages_log or os.environ.get("MESSAGES_LOG", "runs/messages.jsonl"))
     messages_log_path.parent.mkdir(parents=True, exist_ok=True)
     api_url = api_url or os.environ.get("WORKSPACE_API_URL", "http://localhost:8000")
-    shared_dir = agents_path / "_shared"
+    shared_dir = workers_path / "_shared"
     spawn = spawn_fn or default_spawn_fn
     stop = stop_fn or default_stop_fn
     running_ids = running_ids_fn or default_running_ids_fn
@@ -294,25 +294,25 @@ def create_app(
     def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
 
-    @app.get("/agents")
-    def list_agents() -> list[Agent]:
+    @app.get("/workers")
+    def list_workers() -> list[Worker]:
         return [
-            Agent(name=folder.name, instructions=(folder / "CLAUDE.md").read_text(encoding="utf-8"))
-            for folder in sorted(agents_path.iterdir())
+            Worker(name=folder.name, instructions=(folder / "CLAUDE.md").read_text(encoding="utf-8"))
+            for folder in sorted(workers_path.iterdir())
             if (folder / "CLAUDE.md").is_file()
         ]
 
-    @app.get("/agents/{name}")
-    def get_agent(name: str) -> Agent:
+    @app.get("/workers/{name}")
+    def get_worker(name: str) -> Worker:
         validate_name(name)
-        folder = agents_path / name
+        folder = workers_path / name
         claude_md = folder / "CLAUDE.md"
         if not claude_md.is_file():
-            raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
-        return Agent(name=name, instructions=claude_md.read_text(encoding="utf-8"))
+            raise HTTPException(status_code=404, detail=f"Worker '{name}' not found")
+        return Worker(name=name, instructions=claude_md.read_text(encoding="utf-8"))
 
-    @app.post("/agents", status_code=201)
-    def create_agent(body: AgentCreate) -> Agent:
+    @app.post("/workers", status_code=201)
+    def create_worker(body: WorkerCreate) -> Worker:
         validate_name(body.name)
         # Optional initial content makes creation one call, so a client never
         # has to follow up with a PUT that could fail and leave a stub behind.
@@ -321,34 +321,34 @@ def create_app(
             instructions.encode("utf-8")
         except UnicodeEncodeError:
             raise HTTPException(status_code=400, detail="instructions must be valid UTF-8 text")
-        folder = agents_path / body.name
+        folder = workers_path / body.name
         try:
             folder.mkdir()
         except FileExistsError:
-            raise HTTPException(status_code=409, detail=f"Agent '{body.name}' already exists")
+            raise HTTPException(status_code=409, detail=f"Worker '{body.name}' already exists")
         (folder / "CLAUDE.md").write_text(instructions, encoding="utf-8")
-        return Agent(name=body.name, instructions=instructions)
+        return Worker(name=body.name, instructions=instructions)
 
-    @app.put("/agents/{name}")
-    def update_agent(body: AgentUpdate, name: str) -> Agent:
+    @app.put("/workers/{name}")
+    def update_worker(body: WorkerUpdate, name: str) -> Worker:
         validate_name(name)
-        folder = agents_path / name
+        folder = workers_path / name
         claude_md = folder / "CLAUDE.md"
         if not claude_md.is_file():
-            raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+            raise HTTPException(status_code=404, detail=f"Worker '{name}' not found")
         try:
             body.instructions.encode("utf-8")
         except UnicodeEncodeError:
             raise HTTPException(status_code=400, detail="instructions must be valid UTF-8 text")
         claude_md.write_text(body.instructions, encoding="utf-8")
-        return Agent(name=name, instructions=body.instructions)
+        return Worker(name=name, instructions=body.instructions)
 
-    @app.delete("/agents/{name}", status_code=204)
-    def delete_agent(name: str) -> None:
+    @app.delete("/workers/{name}", status_code=204)
+    def delete_worker(name: str) -> None:
         validate_name(name)
-        folder = agents_path / name
+        folder = workers_path / name
         if not (folder / "CLAUDE.md").is_file():
-            raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+            raise HTTPException(status_code=404, detail=f"Worker '{name}' not found")
         shutil.rmtree(folder)
 
     @app.get("/templates")
@@ -378,13 +378,13 @@ def create_app(
         _, body = parse_template(text)
         return TemplateContent(content=body)
 
-    @app.post("/agents/{name}/skills", status_code=201)
+    @app.post("/workers/{name}/skills", status_code=201)
     def write_skill(body: SkillCreate, name: str) -> Skill:
         validate_name(name)
         validate_name(body.skill_name)
-        folder = agents_path / name
+        folder = workers_path / name
         if not folder.is_dir():
-            raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+            raise HTTPException(status_code=404, detail=f"Worker '{name}' not found")
         try:
             body.content.encode("utf-8")
         except UnicodeEncodeError:
@@ -398,24 +398,24 @@ def create_app(
     def spawn_session(body: SessionCreate) -> Session:
         if not spawn_enabled:
             raise HTTPException(status_code=503, detail="spawning_disabled")
-        validate_name(body.agent)
-        agent_folder = agents_path / body.agent
-        if not (agent_folder / "CLAUDE.md").is_file():
-            raise HTTPException(status_code=404, detail=f"Agent '{body.agent}' not found")
+        validate_name(body.worker)
+        worker_folder = workers_path / body.worker
+        if not (worker_folder / "CLAUDE.md").is_file():
+            raise HTTPException(status_code=404, detail=f"Worker '{body.worker}' not found")
         session_uuid = str(uuid.uuid4())
         session_id = session_uuid[:8]
         token = secrets.token_urlsafe(32)
         shared_dir.mkdir(exist_ok=True)
-        write_lockdown_settings(agent_folder)
-        argv = spawn_argv(body.agent, body.task, session_uuid, token, shared_dir, api_url)
-        printed_id = parse_spawned_id(spawn(argv, agent_folder))
+        write_lockdown_settings(worker_folder)
+        argv = spawn_argv(body.worker, body.task, session_uuid, token, shared_dir, api_url)
+        printed_id = parse_spawned_id(spawn(argv, worker_folder))
         if printed_id != session_id:
             raise RuntimeError(f"claude started {printed_id!r}, expected {session_id!r}")
         started_at = datetime.now(timezone.utc).isoformat()
         sessions_store.insert_session(
             sessions_db_path,
             session_id,
-            body.agent,
+            body.worker,
             body.spawned_by,
             started_at,
             body.may_talk_to,
@@ -423,7 +423,7 @@ def create_app(
         )
         return Session(
             session_id=session_id,
-            agent=body.agent,
+            worker=body.worker,
             status="live",
             spawned_by=body.spawned_by,
             started_at=started_at,

@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "agent-workspace": {
+    "ai-workspace": {
       "type": "stdio",
       "command": "python",
       "args": ["../../mcp_server/workspace_server.py"],

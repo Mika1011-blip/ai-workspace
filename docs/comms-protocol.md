@@ -4,7 +4,7 @@
 
 ```
 CREW (dev, on your laptop)                 APP (in Docker)
-lead ── spawns ──► build-* sessions        app-master ── spawns ──► app agent sessions
+lead ── spawns ──► build-* sessions        app-master ── spawns ──► app worker sessions
   │ writes                                   │ asks the API, which writes
   ▼                                          ▼
 .claude/crew/registry.json                 data/registry.json  (API-owned)
@@ -16,9 +16,9 @@ lead ── spawns ──► build-* sessions        app-master ── spawns �
 | | Crew | App |
 |---|---|---|
 | Manager (only writer) | lead session | app-master, **through the API** |
-| Spawns a session with | `claude --bg --name <role> "<brief>"` | MCP tool `spawn_session(agent, task)` |
+| Spawns a session with | `claude --bg --name <role> "<brief>"` | MCP tool `spawn_session(worker, task)` |
 | Registry | `.claude/crew/registry.json` (gitignored, per machine) | `data/registry.json` (API writes it, nobody else) |
-| Protocol file | `.claude/crew/COMMS.md` (committed) | `agents/_shared/COMMS.md` (committed) |
+| Protocol file | `.claude/crew/COMMS.md` (committed) | `workers/_shared/COMMS.md` (committed) |
 | Send a message | `SendMessage` to the session id | MCP tool `send_to_session(session_id, text)` |
 | May talk to | crew sessions + you | app sessions + app-master + you |
 
@@ -29,7 +29,7 @@ Workers **read** the registry, never write it. Only the manager adds or ends ent
 {
   "session_id": "7c5dcf5d",
   "role": "build-wizard",
-  "folder": "agents/news-digest",
+  "folder": "workers/news-digest",
   "worktree": ".claude/worktrees/build-wizard",
   "status": "live",
   "spawned_by": "lead",
@@ -50,12 +50,12 @@ Workers **read** the registry, never write it. Only the manager adds or ends ent
 
 ## 4. Moving to another machine or environment
 Session ids belong to one machine. They don't travel.
-- Committed: `COMMS.md`, the role briefs (`.claude/crew/roles/<role>.md`), the agents' folders. Everything needed to rebuild.
+- Committed: `COMMS.md`, the role briefs (`.claude/crew/roles/<role>.md`), the workers' folders. Everything needed to rebuild.
 - Not committed: `registry.json`.
 - On a new machine, the lead starts with **"rebuild the registry"**: mark every old entry `ended`, spawn the roles still needed, write the new ids. In the app, the API does the same at startup.
 
 ## 5. The wall
-- Every app agent's `.claude/settings.json`: `"permissions": {"deny": ["SendMessage","ListAgents"]}` and `"crossSessionInbound": "refuse"`. So Claude Code messaging is closed, and app agents can only talk through `send_to_session`.
+- Every app worker's `.claude/settings.json`: `"permissions": {"deny": ["SendMessage","ListAgents"]}` and `"crossSessionInbound": "refuse"`. So Claude Code messaging is closed, and app workers can only talk through `send_to_session`.
 - The API checks `may_talk_to` on every send, and logs every message (`runs/messages.jsonl`).
 - Sending to an `ended` or unknown id → refused (`session_ended` / `unknown_session`), never rerouted.
 
@@ -66,4 +66,4 @@ Session ids belong to one machine. They don't travel.
 
 ## 7. What every CLAUDE.md gets (one line)
 Crew: `Before messaging another session, follow @.claude/crew/COMMS.md.`
-App: `To contact another agent, use list_sessions and send_to_session only. Rules: @../_shared/COMMS.md`
+App: `To contact another worker, use list_sessions and send_to_session only. Rules: @../_shared/COMMS.md`

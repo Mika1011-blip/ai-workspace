@@ -24,7 +24,7 @@ current id via the registry before sending anything.
 {
   "session_id": "7c5dcf5d",
   "role": "build-wizard",
-  "folder": "agents/news-digest",
+  "folder": "workers/news-digest",
   "worktree": ".claude/worktrees/build-wizard",
   "status": "live",
   "spawned_by": "lead",

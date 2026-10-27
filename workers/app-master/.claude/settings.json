@@ -1,6 +1,6 @@
 {
   "permissions": {
-    "allow": ["Task", "mcp__agent-workspace__*"],
+    "allow": ["Task", "mcp__ai-workspace__*"],
     "deny": ["Edit", "Write", "Bash"]
   }
 }

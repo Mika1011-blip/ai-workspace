@@ -12,7 +12,7 @@
       ],
       "env": {}
     },
-    "agent-workspace": {
+    "ai-workspace": {
       "type": "stdio",
       "command": "python",
       "args": [
