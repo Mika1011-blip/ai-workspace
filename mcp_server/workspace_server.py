@@ -239,6 +239,60 @@ def end_session(session_id: str) -> dict:
     return response.json()
 
 
+# --- dispatching (docs/vision-gap.md §2.1) ------------------------------------
+
+
+@mcp.tool
+def assign_task(project: str, worker: str, task: str, tools: list[str] | None = None, read_from: list[str] | None = None) -> dict:
+    """Hand a task to a worker inside a project -- the default way work
+    happens. The worker runs in its sandbox with the project's artifacts/
+    folder to read and write; the hand-off is logged on the project and
+    as a run record. `tools` may grant WebSearch/WebFetch; `read_from`
+    extra folders (repo-relative, under workers/ or projects/).
+    Calls POST /projects/{project}/tasks and returns the session, with
+    `run_id` to pass to wait_for_run. Raises an error if the project or
+    worker is unknown.
+    """
+    response = httpx.post(
+        f"{API_BASE_URL}/projects/{project}/tasks",
+        json={"worker": worker, "task": task, "tools": tools or [], "read_from": read_from or []},
+        headers=_auth(),
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def wait_for_run(run_id: str, timeout_s: int = 300) -> dict:
+    """Block until a run finishes (or `timeout_s` passes) and return its
+    record: status (success / failed / needs_input / ... or still
+    running on timeout), the worker's summary, tags, metrics. Use it right
+    after assign_task to chain hand-offs. Calls GET /runs/{run_id}?wait=.
+    """
+    timeout_s = max(1, min(int(timeout_s), 600))
+    response = httpx.get(f"{API_BASE_URL}/runs/{run_id}", params={"wait": timeout_s}, timeout=timeout_s + 30)
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def get_run(run_id: str) -> dict:
+    """One run record in full, right now (no waiting). Calls GET /runs/{run_id}."""
+    response = httpx.get(f"{API_BASE_URL}/runs/{run_id}")
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def list_runs(worker: str | None = None, status: str | None = None, tag: str | None = None) -> list[dict]:
+    """Run records from the index, newest first, narrowed by worker, status
+    and/or one `key:value` tag (e.g. project:first-reel). Calls GET /runs."""
+    params = {k: v for k, v in (("worker", worker), ("status", status), ("tag", tag)) if v}
+    response = httpx.get(f"{API_BASE_URL}/runs", params=params)
+    response.raise_for_status()
+    return response.json()
+
+
 # --- studio projects (docs/animation-studio.md §7) ----------------------------
 
 

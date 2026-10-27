@@ -369,6 +369,61 @@ def test_end_session_raises_on_unknown_session(monkeypatch):
         ws.end_session("does-not-exist")
 
 
+# --- dispatching -----------------------------------------------------------------
+
+
+def test_assign_task_posts_to_the_project_with_token(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ws, "SESSION_TOKEN", "tok-1")
+
+    def fake_post(url, json, headers):
+        calls.append((url, json, headers))
+        return FakeResponse(201, {"session_id": "s1", "run_id": "scriptwriter-x"})
+
+    monkeypatch.setattr(ws.httpx, "post", fake_post)
+
+    result = ws.assign_task("first-reel", "scriptwriter", "write it", tools=["WebFetch"])
+
+    assert calls == [(
+        f"{ws.API_BASE_URL}/projects/first-reel/tasks",
+        {"worker": "scriptwriter", "task": "write it", "tools": ["WebFetch"], "read_from": []},
+        {"X-Session-Token": "tok-1"},
+    )]
+    assert result["run_id"] == "scriptwriter-x"
+
+
+def test_wait_for_run_long_polls(monkeypatch):
+    calls = []
+
+    def fake_get(url, params, timeout):
+        calls.append((url, params, timeout))
+        return FakeResponse(200, {"run_id": "scriptwriter-x", "status": "success"})
+
+    monkeypatch.setattr(ws.httpx, "get", fake_get)
+
+    result = ws.wait_for_run("scriptwriter-x", timeout_s=120)
+
+    assert calls == [(f"{ws.API_BASE_URL}/runs/scriptwriter-x", {"wait": 120}, 150)]
+    assert result["status"] == "success"
+
+
+def test_get_run_and_list_runs(monkeypatch):
+    calls = []
+
+    def fake_get(url, params=None):
+        calls.append((url, params))
+        return FakeResponse(200, [] if url.endswith("/runs") else {"run_id": "x"})
+
+    monkeypatch.setattr(ws.httpx, "get", fake_get)
+
+    assert ws.get_run("x") == {"run_id": "x"}
+    assert ws.list_runs(worker="scriptwriter", tag="project:first-reel") == []
+    assert calls == [
+        (f"{ws.API_BASE_URL}/runs/x", None),
+        (f"{ws.API_BASE_URL}/runs", {"worker": "scriptwriter", "tag": "project:first-reel"}),
+    ]
+
+
 # --- studio projects -----------------------------------------------------------
 
 

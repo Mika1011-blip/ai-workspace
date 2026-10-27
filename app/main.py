@@ -7,6 +7,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -122,6 +123,18 @@ class DecisionRequest(BaseModel):
     decision: str
     notes: str | None = None
     by: str | None = None
+
+
+class TaskRequest(BaseModel):
+    worker: str
+    task: str
+    tools: list[str] = []
+    read_from: list[str] = []
+    by: str | None = None
+
+
+# The factory's brain cannot be removed through the API (vision §5).
+PROTECTED_WORKERS = {"app-master"}
 
 
 class MessageCreate(BaseModel):
@@ -386,6 +399,24 @@ def create_app(
     # where the claude CLI exists -- i.e. not inside Docker -- and only when
     # the running set is actually known. Runs at startup, not import: the
     # CLI call takes seconds and importing a module must not shell out.
+    def close_handoff(session_id: str, status: str, summary: str | None) -> None:
+        """A hand-off's session reported or died: update the project's hand-off log."""
+        slug = projects.handoff_for_session(sessions_db_path, session_id)
+        if slug is None:
+            return
+        folder = projects_path / slug
+        manifest = projects.read_manifest(folder)
+        if manifest is None:
+            return
+        for entry in reversed(manifest.setdefault("handoffs", [])):
+            if entry["session_id"] == session_id and entry["status"] == "running":
+                entry["status"] = status
+                entry["summary"] = summary
+                entry["ended_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                break
+        projects.write_manifest(folder, manifest, datetime.now(timezone.utc))
+        projects.upsert(sessions_db_path, manifest, folder)
+
     def finalize_run(session_id: str, ended_at: datetime, status: str, error: str) -> dict | None:
         """Close the run record behind a session. `status`/`error` apply only
         if the worker never reported -- its own verdict is never overwritten."""
@@ -406,6 +437,7 @@ def create_app(
                 for sid in sessions_store.reconcile(sessions_db_path, ids, now.isoformat()):
                     record = finalize_run(sid, now, "failed", "process gone before reporting a result")
                     studio.on_session_failed(sid, "process gone before reporting a result")
+                    close_handoff(sid, "failed", "process gone before reporting a result")
                     entry = sessions_store.get_session(sessions_db_path, sid)
                     if entry is not None:
                         activity.log(
@@ -493,6 +525,8 @@ def create_app(
     @app.delete("/workers/{name}", status_code=204)
     def delete_worker(name: str) -> None:
         validate_name(name)
+        if name in PROTECTED_WORKERS:
+            raise HTTPException(status_code=403, detail=f"protected: '{name}' cannot be deleted")
         folder = workers_path / name
         if not (folder / "CLAUDE.md").is_file():
             raise HTTPException(status_code=404, detail=f"Worker '{name}' not found")
@@ -694,9 +728,78 @@ def create_app(
             "result_reported",
             {"session_id": session_id, "run_id": record["run_id"], "status": body.status},
         )
-        # If this session was a pipeline stage, the project moves on.
+        # If this session was a pipeline stage, the project moves on; if it
+        # was a hand-off from the master, the project's log closes it.
         studio.on_report(session_id, body.status, body.summary)
+        close_handoff(session_id, body.status, body.summary)
         return record
+
+    @app.post("/projects/{slug}/tasks", status_code=201)
+    def assign_task(
+        body: TaskRequest, slug: str, x_session_token: str | None = Header(default=None)
+    ) -> Session:
+        """The master hands a task to a worker inside a project
+        (docs/vision-gap.md §2.1). The worker gets the project's artifacts/
+        folder to read and write; the hand-off is logged in the manifest."""
+        folder, manifest = project_or_404(slug)
+        validate_name(body.worker)
+        if not (workers_path / body.worker / "CLAUDE.md").is_file():
+            raise HTTPException(status_code=404, detail=f"Worker '{body.worker}' not found")
+        bad_tools = sorted(set(body.tools) - GRANTABLE_TOOLS)
+        if bad_tools:
+            raise HTTPException(status_code=400, detail=f"bad_tool: {bad_tools} (grantable: {sorted(GRANTABLE_TOOLS)})")
+        read_from = [resolve_grant(d) for d in body.read_from]
+        session = authenticate(sessions_db_path, x_session_token)
+        by = session["session_id"] if session else (body.by or "app-master")
+        artifacts_dir = folder / "artifacts"
+        artifacts_dir.mkdir(exist_ok=True)
+        task = (
+            f"Project '{slug}' ({manifest['title']}). Your working files are in {artifacts_dir.resolve()} "
+            "(read and write). Next to every file or folder you produce, write a sidecar <name>.json with: "
+            "kind, stage, run_id, worker, description (one line, mandatory), created_at.\n"
+            f"Task from the master: {body.task}\n"
+            "When finished, call report_result once: status 'success' with a one-line summary of what you "
+            "produced and where, 'needs_input' if you are blocked (say on what), or 'failed'."
+        )
+        result = start_session(
+            body.worker, task, trigger="event",
+            tags=[f"project:{slug}", f"topic:{slug}"], tools=body.tools,
+            read_from=read_from, write_to=[artifacts_dir], spawned_by=by,
+        )
+        manifest.setdefault("handoffs", []).append(
+            {
+                "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "by": by,
+                "worker": body.worker,
+                "task": body.task,
+                "session_id": result["session_id"],
+                "run_id": result["run_id"],
+                "status": "running",
+                "summary": None,
+                "ended_at": None,
+            }
+        )
+        if manifest["status"] == "created":
+            manifest["status"] = "running"
+        projects.write_manifest(folder, manifest, datetime.now(timezone.utc))
+        projects.upsert(sessions_db_path, manifest, folder)
+        projects.map_handoff(sessions_db_path, result["session_id"], slug)
+        return Session(**result)
+
+    @app.get("/runs/{run_id}")
+    def get_run(run_id: str, wait: float = 0) -> dict:
+        """One run record in full. With `wait` (seconds, max 600) the call
+        long-polls until the run leaves `running`, so a dispatcher can chain
+        hand-offs without busy-polling."""
+        deadline = time.monotonic() + max(0.0, min(wait, 600.0))
+        while True:
+            rows = [r for r in run_records.list_runs(sessions_db_path) if r["run_id"] == run_id]
+            if not rows:
+                raise HTTPException(status_code=404, detail="unknown_run")
+            record = run_records.read_record(Path(rows[0]["path"]))
+            if record["status"] != "running" or time.monotonic() >= deadline:
+                return record
+            time.sleep(0.5)
 
     @app.post("/projects/{slug}/start")
     def start_project(slug: str) -> dict:
@@ -918,6 +1021,7 @@ def create_app(
         sessions_store.mark_ended(sessions_db_path, session_id, ended_at)
         record = finalize_run(session_id, now, "failed", "ended before reporting a result")
         studio.on_session_failed(session_id, "session ended before reporting a result")
+        close_handoff(session_id, "failed", "ended before reporting a result")
         activity.log(
             workers_path,
             entry["worker"],
