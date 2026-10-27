@@ -1,20 +1,30 @@
 import os
+import re
 import shutil
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Path as PathParam
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-# Lowercase letters and digits, separated by single dashes (e.g. "code-reviewer").
-# Rejecting everything else also keeps names from escaping the agents folder.
-NAME_PATTERN = r"^[a-z0-9]+(-[a-z0-9]+)*$"
+# Lowercase letters, digits and hyphens, 1-40 characters total. Rejecting
+# everything else also keeps names from escaping the agents folder, since a
+# match can never contain "." or "/".
+NAME_PATTERN = r"^[a-z0-9-]{1,40}$"
+
+
+def validate_name(name: str) -> None:
+    if not re.fullmatch(NAME_PATTERN, name):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid agent name {name!r}: must match {NAME_PATTERN}",
+        )
 
 
 class AgentCreate(BaseModel):
-    name: str = Field(pattern=NAME_PATTERN, min_length=1, max_length=64)
+    name: str
 
 
 class AgentUpdate(BaseModel):
@@ -49,7 +59,8 @@ def create_app(agents_dir: Path | str | None = None) -> FastAPI:
         ]
 
     @app.get("/agents/{name}")
-    def get_agent(name: str = PathParam(pattern=NAME_PATTERN, min_length=1, max_length=64)) -> Agent:
+    def get_agent(name: str) -> Agent:
+        validate_name(name)
         folder = agents_path / name
         claude_md = folder / "CLAUDE.md"
         if not claude_md.is_file():
@@ -58,6 +69,7 @@ def create_app(agents_dir: Path | str | None = None) -> FastAPI:
 
     @app.post("/agents", status_code=201)
     def create_agent(body: AgentCreate) -> Agent:
+        validate_name(body.name)
         folder = agents_path / body.name
         try:
             folder.mkdir()
@@ -68,9 +80,8 @@ def create_app(agents_dir: Path | str | None = None) -> FastAPI:
         return Agent(name=body.name, instructions=instructions)
 
     @app.put("/agents/{name}")
-    def update_agent(
-        body: AgentUpdate, name: str = PathParam(pattern=NAME_PATTERN, min_length=1, max_length=64)
-    ) -> Agent:
+    def update_agent(body: AgentUpdate, name: str) -> Agent:
+        validate_name(name)
         folder = agents_path / name
         claude_md = folder / "CLAUDE.md"
         if not claude_md.is_file():
@@ -83,7 +94,8 @@ def create_app(agents_dir: Path | str | None = None) -> FastAPI:
         return Agent(name=name, instructions=body.instructions)
 
     @app.delete("/agents/{name}", status_code=204)
-    def delete_agent(name: str = PathParam(pattern=NAME_PATTERN, min_length=1, max_length=64)) -> None:
+    def delete_agent(name: str) -> None:
+        validate_name(name)
         folder = agents_path / name
         if not (folder / "CLAUDE.md").is_file():
             raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")

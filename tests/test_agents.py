@@ -1,30 +1,44 @@
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
 
-# Names that must always be refused by NAME_PATTERN, regardless of which endpoint
-# receives them (see .claude/rules/api.md). Safe to put in a JSON body.
+# Names that must always be refused by NAME_PATTERN (^[a-z0-9-]{1,40}$),
+# regardless of which endpoint receives them (see .claude/rules/api.md). Safe
+# to put in a JSON body. Note: "-leading" and "double--dash" are NOT in this
+# list anymore -- under the new pattern they're valid names (see the
+# dedicated acceptance tests below).
 BODY_INVALID_NAMES = [
     "../secret",       # parent-directory traversal
     "..",               # bare parent-directory segment
     ".",                # bare current-directory segment
     "Bad Name",         # space, mixed case
     "UPPER",            # uppercase
-    "a" * 65,           # over the 64-char limit
-    "-leading",         # leading dash
-    "double--dash",     # double dash
+    "",                 # empty string
+    "a" * 41,           # over the 40-char limit
     "under_score",      # underscore not allowed
     "name\x00byte",      # embedded null byte
 ]
 
-# Same list, minus the two values that can't be used to test app-level
-# validation when placed in a URL path: "." and ".." are normalized away by
-# the HTTP client itself before the request is even sent (RFC 3986), and a
-# null byte can't be represented in a URL path at all. Those three get their
-# own dedicated tests below instead of a generic status-code assertion.
-PATH_INVALID_NAMES = [n for n in BODY_INVALID_NAMES if n not in (".", "..", "name\x00byte")]
+# Same list, minus the values that can't be used to test app-level validation
+# when placed in a URL path:
+# - "." and ".." are normalized away by the HTTP client itself before the
+#   request is even sent (RFC 3986);
+# - "../secret" as a single path segment normalizes the same way (to
+#   "/secret"), landing on an unrelated, unmatched route -- it never reaches
+#   NAME_PATTERN validation, so it's exercised as a body value only;
+# - "" as a path segment collapses the URL to "/agents" and 307-redirects to
+#   the list endpoint, never reaching {name} validation either;
+# - a null byte can't be represented in a URL path at all.
+# Those all get their own dedicated tests below instead of a generic
+# status-code assertion.
+PATH_INVALID_NAMES = [
+    n for n in BODY_INVALID_NAMES if n not in (".", "..", "../secret", "", "name\x00byte")
+]
+
+# Names that match NAME_PATTERN but used to be rejected under the old,
+# stricter pattern -- now valid, and must be accepted end-to-end.
+NEWLY_VALID_NAMES = ["-leading", "double--dash"]
 
 
 @pytest.fixture
@@ -97,8 +111,23 @@ class TestCreateAgent:
         assert (agents_dir / "a" / "CLAUDE.md").is_file()
 
     def test_name_at_max_length_is_accepted(self, client, agents_dir):
-        name = "a" * 64
+        name = "a" * 40
 
+        res = create(client, name)
+
+        assert res.status_code == 201
+        assert (agents_dir / name / "CLAUDE.md").is_file()
+
+    def test_name_over_max_length_is_refused(self, client, agents_dir):
+        name = "a" * 41
+
+        res = create(client, name)
+
+        assert res.status_code == 400
+        assert list(agents_dir.iterdir()) == []
+
+    @pytest.mark.parametrize("name", NEWLY_VALID_NAMES)
+    def test_leading_or_double_dash_name_is_accepted(self, client, agents_dir, name):
         res = create(client, name)
 
         assert res.status_code == 201
@@ -124,11 +153,11 @@ class TestCreateAgent:
 
         assert res.status_code == 422
 
-    @pytest.mark.parametrize("name", BODY_INVALID_NAMES + [""])
+    @pytest.mark.parametrize("name", BODY_INVALID_NAMES)
     def test_bad_name_is_refused(self, client, agents_dir, name):
         res = create(client, name)
 
-        assert res.status_code == 422
+        assert res.status_code == 400
         assert list(agents_dir.iterdir()) == []
         assert not (agents_dir.parent / "secret").exists()
 
@@ -157,6 +186,15 @@ class TestGetAgent:
         res = client.get("/agents/nope")
 
         assert res.status_code == 404
+
+    @pytest.mark.parametrize("name", NEWLY_VALID_NAMES)
+    def test_leading_or_double_dash_name_is_accepted(self, client, name):
+        create(client, name)
+
+        res = client.get(f"/agents/{name}")
+
+        assert res.status_code == 200
+        assert res.json()["name"] == name
 
     def test_path_with_extra_segments_is_not_found(self, client, agents_dir):
         # A "/" can never reach NAME_PATTERN validation: Starlette's router only
@@ -188,17 +226,18 @@ class TestGetAgent:
         if res.status_code == 200:
             assert res.json() == []  # the list endpoint, not a "." agent
 
-    def test_null_byte_in_path_is_rejected_before_it_is_sent(self, client):
-        # A null byte can't be represented in a URL path by any standards-
-        # compliant HTTP client, so this never even reaches the server.
-        with pytest.raises(httpx.InvalidURL):
-            client.get("/agents/name\x00byte")
+    def test_null_byte_in_path_is_refused(self, client):
+        # Sent URL-encoded (%00) so it actually reaches the app as a path
+        # param, rather than tripping the HTTP client's own URL validation.
+        res = client.get("/agents/name%00byte")
+
+        assert res.status_code in (400, 404)
 
     @pytest.mark.parametrize("name", PATH_INVALID_NAMES)
     def test_bad_name_is_refused(self, client, name):
         res = client.get(f"/agents/{name}")
 
-        assert res.status_code in (404, 422)
+        assert res.status_code == 400
 
 
 class TestDeleteAgent:
@@ -234,6 +273,15 @@ class TestDeleteAgent:
         assert res.status_code == 404
         assert not (agents_dir / "nope").exists()
 
+    @pytest.mark.parametrize("name", NEWLY_VALID_NAMES)
+    def test_leading_or_double_dash_name_is_accepted(self, client, agents_dir, name):
+        create(client, name)
+
+        res = client.delete(f"/agents/{name}")
+
+        assert res.status_code == 204
+        assert not (agents_dir / name).exists()
+
     def test_only_deletes_the_named_agent(self, client, agents_dir):
         create(client, "writer")
         create(client, "researcher")
@@ -253,15 +301,19 @@ class TestDeleteAgent:
         assert res.status_code != 204
         assert (agents_dir / "researcher").exists()
 
-    def test_null_byte_in_path_is_rejected_before_it_is_sent(self, client):
-        with pytest.raises(httpx.InvalidURL):
-            client.delete("/agents/name\x00byte")
+    def test_null_byte_in_path_is_refused(self, client, agents_dir):
+        create(client, "researcher")
+
+        res = client.delete("/agents/name%00byte")
+
+        assert res.status_code in (400, 404)
+        assert (agents_dir / "researcher").exists()
 
     @pytest.mark.parametrize("name", PATH_INVALID_NAMES)
     def test_bad_name_is_refused(self, client, agents_dir, name):
         res = client.delete(f"/agents/{name}")
 
-        assert res.status_code in (404, 422)
+        assert res.status_code == 400
 
 
 class TestUpdateAgent:
@@ -280,6 +332,15 @@ class TestUpdateAgent:
 
         assert res.status_code == 404
         assert not (agents_dir / "nope").exists()
+
+    @pytest.mark.parametrize("name", NEWLY_VALID_NAMES)
+    def test_leading_or_double_dash_name_is_accepted(self, client, agents_dir, name):
+        create(client, name)
+
+        res = client.put(f"/agents/{name}", json={"instructions": "# updated\n"})
+
+        assert res.status_code == 200
+        assert (agents_dir / name / "CLAUDE.md").read_text(encoding="utf-8") == "# updated\n"
 
     def test_missing_instructions_field_is_refused(self, client, agents_dir):
         create(client, "researcher")
@@ -313,11 +374,17 @@ class TestUpdateAgent:
     def test_bad_name_is_refused(self, client, agents_dir, name):
         res = client.put(f"/agents/{name}", json={"instructions": "x"})
 
-        assert res.status_code in (404, 422)
+        assert res.status_code == 400
 
-    def test_null_byte_in_path_is_rejected_before_it_is_sent(self, client):
-        with pytest.raises(httpx.InvalidURL):
-            client.put("/agents/name\x00byte", json={"instructions": "x"})
+    def test_null_byte_in_path_is_refused(self, client, agents_dir):
+        create(client, "researcher")
+        claude_md = agents_dir / "researcher" / "CLAUDE.md"
+        before = claude_md.read_text(encoding="utf-8")
+
+        res = client.put("/agents/name%00byte", json={"instructions": "x"})
+
+        assert res.status_code in (400, 404)
+        assert claude_md.read_text(encoding="utf-8") == before
 
     def test_empty_instructions_body_is_accepted_and_clears_content(self, client, agents_dir):
         create(client, "researcher")
