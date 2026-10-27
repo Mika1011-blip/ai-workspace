@@ -177,6 +177,55 @@ class TestPublishStep:
         assert [c[-1] for c in docker.calls] == ["render", "frames", "publish"]
 
 
+# --- the renderer script itself (pure functions, no docker) --------------------
+
+def load_render_script():
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[1] / "docker" / "renderers" / "ffmpeg" / "render.py"
+    spec = importlib.util.spec_from_file_location("ffmpeg_render", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestCaptionWrapping:
+    # The first real render cut "Why does your cat purr?" off at both edges:
+    # drawtext never wraps, so the script has to.
+
+    def test_long_caption_is_wrapped_to_the_frame_width(self):
+        script = load_render_script()
+        fontsize = script.caption_fontsize(1920)
+        text = "3. Healing: 25-150 Hz vibrations may help bones and tissue mend"
+
+        lines = script.wrap_caption(text, 1080, fontsize).split("\n")
+
+        assert len(lines) >= 2
+        per_line = int(1080 * 0.9 / (fontsize * 0.6))
+        assert all(len(line) <= per_line for line in lines)
+        assert " ".join(lines) == text  # nothing lost, only broken at spaces
+
+    def test_short_caption_stays_on_one_line(self):
+        script = load_render_script()
+
+        assert script.wrap_caption("Why?", 1080, script.caption_fontsize(1920)) == "Why?"
+
+    def test_filter_centres_lines_and_writes_the_wrapped_textfile(self, tmp_path):
+        script = load_render_script()
+
+        vf = script.caption_filter("Why does your cat purr? Four reasons in twenty seconds", 1080, 1920, tmp_path, 3)
+
+        assert "text_align=C" in vf and "line_spacing=" in vf
+        assert f"fontsize={script.caption_fontsize(1920)}" in vf
+        written = (tmp_path / "caption-03.txt").read_text(encoding="utf-8")
+        assert "\n" in written
+
+    def test_empty_caption_draws_nothing(self, tmp_path):
+        script = load_render_script()
+
+        assert script.caption_filter("", 1080, 1920, tmp_path, 0) == "null"
+
+
 # --- the real image, when it exists on this machine ---------------------------
 
 def real_image_present() -> bool:
@@ -196,7 +245,8 @@ def test_ffmpeg_image_renders_a_plan_and_publishes_browser_safe(tmp_path):
         "width": 360, "height": 640, "fps": 24,
         "shots": [
             {"text": "Why do cats purr?", "duration": 1.0, "color": "#1b1b2f"},
-            {"text": "Three reasons.", "duration": 1.0, "color": "#2f1b1b"},
+            # Long enough to need wrapping even at 360 px wide.
+            {"text": "Three reasons, and the third one will surprise you more than the first", "duration": 1.0, "color": "#2f1b1b"},
         ],
     }), encoding="utf-8")
     r = render.Renderer()

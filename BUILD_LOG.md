@@ -102,3 +102,6 @@
 - 2026-10-27 21:11:09 — commit 55540a1 The master dispatches: assign_task, wait_for_run, hand-off log, protected master
 - 2026-10-27 21:14:05 — commit 82f76aa render_project: dispatch mode can render and publish
 - 2026-10-27 21:22:06 — commit 17eb21b Grant directories as absolute paths
+- 2026-10-27 21:25:33 — changed: workers/scriptwriter/.claude/settings.json
+- 2026-10-27 21:26:46 — changed: workers/renderer/.claude/settings.json, workers/scriptwriter/.claude/settings.json
+- 2026-10-27 21:32:18 — commit 492f18b Wrap captions to the frame width
