@@ -100,3 +100,4 @@
 - 2026-10-27 20:50:40 — commit 019a540 The eight stage workers and the social-short format skill
 - 2026-10-27 21:06:59 — commit 80407de Vision gap: dispatch replaces the fixed pipeline, SDK runner, decisions
 - 2026-10-27 21:11:09 — commit 55540a1 The master dispatches: assign_task, wait_for_run, hand-off log, protected master
+- 2026-10-27 21:14:05 — commit 82f76aa render_project: dispatch mode can render and publish
