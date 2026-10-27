@@ -19,7 +19,9 @@ SESSION_TOKEN = os.environ.get("SESSION_TOKEN", "")
 def _auth() -> dict:
     return {"X-Session-Token": SESSION_TOKEN}
 
-mcp = FastMCP("ai-workspace")
+# One name everywhere -- root .mcp.json, app-master's .mcp.json, the API's
+# --mcp-config, and the mcp__agent-workspace__* prefix in every allow list.
+mcp = FastMCP("agent-workspace")
 
 
 @mcp.tool

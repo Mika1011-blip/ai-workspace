@@ -1,7 +1,7 @@
 ---
 name: new-agent
 description: Turn a plain-language request like "make me an agent that summarizes AI news" into a new agent in the workspace. Picks a valid name, writes its CLAUDE.md, and creates it via the workspace MCP tools.
-allowed-tools: mcp__mymcp__list_agents, mcp__mymcp__create_agent
+allowed-tools: mcp__agent-workspace__list_agents, mcp__agent-workspace__create_agent
 ---
 
 Create a new agent from the user's request: $ARGUMENTS

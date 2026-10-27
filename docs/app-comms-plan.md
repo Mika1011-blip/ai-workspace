@@ -102,7 +102,7 @@ every agent it creates)
     else in the repo.
   - `--strict-mcp-config` loads only the `--mcp-config` we pass: the
     `agent-workspace` server, with that session's `SESSION_ID` in its
-    env. No user-level server (mymcp/context7/playwright) can leak in,
+    env. Nothing from the root `.mcp.json` (context7/playwright) can leak in,
     so no `disabledMcpjsonServers` list to maintain.
   - `--settings` denies `SendMessage`, `ListAgents`, `Edit`, `Write`,
     `Bash` and sets `"crossSessionInbound": "refuse"`; allows `Read`,
