@@ -104,9 +104,13 @@ every worker it creates)
     `ai-workspace` server, with that session's `SESSION_ID` in its
     env. Nothing from the root `.mcp.json` (context7/playwright) can leak in,
     so no `disabledMcpjsonServers` list to maintain.
-  - `--settings` denies `SendMessage`, `ListAgents`, `Edit`, `Write`,
-    `Bash` and sets `"crossSessionInbound": "refuse"`; allows `Read`,
-    `Glob`, `Grep` and `mcp__ai-workspace__*`.
+  - `--settings` denies `SendMessage`, `ListAgents`, `Bash` and sets
+    `"crossSessionInbound": "refuse"`; allows `Read`, `Glob`, `Grep`,
+    `Edit`, `Write` and `mcp__ai-workspace__*`. Writing is confined by
+    `--restricted` to the worker's own folder plus `_shared`, and two
+    deny rules (`Edit(//…/_shared/**)`, `Write(//…/_shared/**)`) take
+    `_shared` back out — a worker can build a whole project inside its
+    own folder but can never change the shared one.
   - `dontAsk`: anything not allow-listed is refused, since a background
     session has nobody to answer a prompt. `--restricted` also refuses
     `bypassPermissions`, so an app session can never run in the lead's
