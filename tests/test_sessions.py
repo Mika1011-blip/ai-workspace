@@ -180,6 +180,9 @@ class TestSpawnLockdown:
         assert f"Write({shared}/**)" in settings["permissions"]["deny"]
         assert "Edit" not in settings["permissions"]["deny"]
         assert "Write" not in settings["permissions"]["deny"]
+        # Without this, a background session in a git repo refuses every
+        # write until EnterWorktree -- a tool it doesn't have. Verified live.
+        assert settings["worktree"] == {"bgIsolation": "none"}
 
         # The spec's on-disk settings.json says the same thing.
         written = json.loads(

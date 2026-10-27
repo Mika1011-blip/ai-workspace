@@ -178,6 +178,11 @@ def lockdown_settings(
             "deny": deny,
         },
         "crossSessionInbound": "refuse",
+        # Background sessions inside a git repo refuse every write until they
+        # EnterWorktree (verified live). Our confinement is the worker's own
+        # folder, not a worktree, so that guard is switched off for app
+        # sessions only -- the lead's and the crew's sessions keep it.
+        "worktree": {"bgIsolation": "none"},
     }
 
 
