@@ -34,3 +34,9 @@
 - 2026-10-27 14:10:23 — changed: app/main.py, app/static/index.html, tests/test_agents.py
 - 2026-10-27 14:13:43 — changed: app/main.py, app/static/index.html, tests/test_agents.py
 - 2026-10-27 14:17:33 — commit 6b5ecad Add template/skill endpoints and a template-based New agent page
+- 2026-10-27 14:07:43 — changed: agents/app-master/.claude/agents/context-writer.md, agents/app-master/.claude/agents/interviewer.md, agents/app-master/.claude/agents/reviewer.md, agents/app-master/.claude/agents/skill-writer.md, agents/app-master/.claude/settings.json, agents/app-master/.mcp.json, agents/app-master/CLAUDE.md, docs/master-agent.md, mcp_server/__init__.py, mcp_server/requirements.txt, mcp_server/tests/__init__.py, mcp_server/tests/test_workspace_server.py, mcp_server/workspace_server.py
+- 2026-10-27 14:10:14 — commit c89c1d1 Add master-agent MCP tools and app-master agent
+- 2026-10-27 14:10:24 — commit d978d87 Log build step
+- 2026-10-27 14:40:11 — commit 2baa060 Fix ultrareview findings: non-interactive interviewer, dev deps
+- 2026-10-27 14:59:06 — commit 58051db Update build log
+- 2026-10-27 15:01:25 — commit 445b70f Merge remote-tracking branch 'origin/main' into worktree-master-agent
