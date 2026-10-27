@@ -76,6 +76,7 @@ week.
 | `env` | `local` · `cloud` · `ci` | writer, always (`local` today) |
 | `scope` | `research` · `code` · `docs` · `ops` | spawner or worker |
 | `topic` | free text, `[a-z0-9-]`, ≤ 40 chars | spawner or worker |
+| `project` | a project slug | the pipeline, on every stage run |
 | `severity` | `info` · `warn` · `error` | worker |
 
 Filter with `GET /runs?worker=…&status=…&tag=scope:research&since=<ISO>`.
