@@ -58,3 +58,5 @@
 - 2026-10-27 17:23:59 — commit 7f82a9c Update build log
 - 2026-10-27 17:33:27 — changed: .gitignore, app/main.py, mcp_server/tests/test_workspace_server.py, mcp_server/workspace_server.py, agents/COMMS.md, agents/_shared/README.md, app/sessions_store.py, tests/test_sessions.py
 - 2026-10-27 17:34:19 — commit 6ccc14f Build app-side comms protocol: session registry, endpoints, MCP tools
+- 2026-10-27 17:34:23 — commit efde1eb Update build log
+- 2026-10-27 17:35:53 — commit 4170668 Move agents/COMMS.md into agents/_shared/
