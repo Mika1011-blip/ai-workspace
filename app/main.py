@@ -13,11 +13,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app import sessions_store
+from app import run_records, sessions_store
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -73,6 +73,8 @@ class SessionCreate(BaseModel):
     task: str
     spawned_by: str | None = None
     may_talk_to: list[str] = []
+    trigger: str = "manual"
+    tags: list[str] = []
 
 
 class Session(BaseModel):
@@ -83,6 +85,15 @@ class Session(BaseModel):
     started_at: str
     ended_at: str | None
     may_talk_to: list[str]
+    run_id: str | None = None
+
+
+class ResultReport(BaseModel):
+    status: str
+    summary: str | None = None
+    tags: list[str] = []
+    metrics: dict = {}
+    error: str | None = None
 
 
 class MessageCreate(BaseModel):
@@ -253,6 +264,7 @@ def create_app(
     templates_path = Path(templates_dir or os.environ.get("TEMPLATES_DIR", "worker_templates"))
     sessions_db_path = Path(sessions_db or os.environ.get("SESSIONS_DB", "data/sessions.db"))
     sessions_store.init_db(sessions_db_path)
+    run_records.init_table(sessions_db_path)
     messages_log_path = Path(messages_log or os.environ.get("MESSAGES_LOG", "runs/messages.jsonl"))
     messages_log_path.parent.mkdir(parents=True, exist_ok=True)
     api_url = api_url or os.environ.get("WORKSPACE_API_URL", "http://localhost:8000")
@@ -268,14 +280,24 @@ def create_app(
     # where the claude CLI exists -- i.e. not inside Docker -- and only when
     # the running set is actually known. Runs at startup, not import: the
     # CLI call takes seconds and importing a module must not shell out.
+    def finalize_run(session_id: str, ended_at: datetime, status: str, error: str) -> None:
+        """Close the run record behind a session. `status`/`error` apply only
+        if the worker never reported -- its own verdict is never overwritten."""
+        path = run_records.path_for_session(sessions_db_path, session_id)
+        if path is None or not path.is_file():
+            return
+        record = run_records.finish(run_records.read_record(path), ended_at, status, error)
+        run_records.write_record(workers_path, record)
+        run_records.upsert(sessions_db_path, record, path)
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         if spawn_enabled:
             ids = running_ids()
             if ids is not None:
-                sessions_store.reconcile(
-                    sessions_db_path, ids, datetime.now(timezone.utc).isoformat()
-                )
+                now = datetime.now(timezone.utc)
+                for sid in sessions_store.reconcile(sessions_db_path, ids, now.isoformat()):
+                    finalize_run(sid, now, "failed", "process gone before reporting a result")
         yield
 
     def log_message(from_id: str, to_id: str, outcome: str) -> None:
@@ -402,6 +424,12 @@ def create_app(
         worker_folder = workers_path / body.worker
         if not (worker_folder / "CLAUDE.md").is_file():
             raise HTTPException(status_code=404, detail=f"Worker '{body.worker}' not found")
+        if body.trigger not in run_records.TRIGGERS:
+            raise HTTPException(status_code=400, detail="bad_trigger")
+        try:
+            run_records.validate_tags(body.tags)
+        except run_records.BadTag as exc:
+            raise HTTPException(status_code=400, detail=f"bad_tag: {exc}")
         session_uuid = str(uuid.uuid4())
         session_id = session_uuid[:8]
         token = secrets.token_urlsafe(32)
@@ -411,7 +439,8 @@ def create_app(
         printed_id = parse_spawned_id(spawn(argv, worker_folder))
         if printed_id != session_id:
             raise RuntimeError(f"claude started {printed_id!r}, expected {session_id!r}")
-        started_at = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(timezone.utc)
+        started_at = now.isoformat()
         sessions_store.insert_session(
             sessions_db_path,
             session_id,
@@ -421,6 +450,16 @@ def create_app(
             body.may_talk_to,
             hash_token(token),
         )
+        record = run_records.new_record(
+            body.worker,
+            session_id,
+            body.trigger,
+            body.tags,
+            now,
+            (worker_folder / "CLAUDE.md").read_text(encoding="utf-8"),
+        )
+        path = run_records.write_record(workers_path, record)
+        run_records.upsert(sessions_db_path, record, path)
         return Session(
             session_id=session_id,
             worker=body.worker,
@@ -429,7 +468,48 @@ def create_app(
             started_at=started_at,
             ended_at=None,
             may_talk_to=body.may_talk_to,
+            run_id=record["run_id"],
         )
+
+    @app.post("/sessions/{session_id}/result")
+    def report_result(
+        body: ResultReport, session_id: str, x_session_token: str | None = Header(default=None)
+    ) -> dict:
+        entry = sessions_store.get_session(sessions_db_path, session_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="unknown_session")
+        if not token_matches(entry, x_session_token):
+            raise HTTPException(status_code=401, detail="bad_token")
+        if entry["status"] != "live":
+            raise HTTPException(status_code=409, detail="session_ended")
+        if body.status not in run_records.REPORTABLE_STATUSES:
+            raise HTTPException(status_code=400, detail="bad_status")
+        path = run_records.path_for_session(sessions_db_path, session_id)
+        if path is None or not path.is_file():
+            raise HTTPException(status_code=404, detail="unknown_run")
+        record = run_records.read_record(path)
+        try:
+            record["tags"] = run_records.validate_tags(record["tags"] + body.tags)
+        except run_records.BadTag as exc:
+            raise HTTPException(status_code=400, detail=f"bad_tag: {exc}")
+        record["status"] = body.status
+        record["result"] = {"summary": body.summary} if body.summary is not None else record["result"]
+        record["error"] = body.error
+        for key in ("turns", "cost_usd"):
+            if key in body.metrics:
+                record["metrics"][key] = body.metrics[key]
+        run_records.write_record(workers_path, record)
+        run_records.upsert(sessions_db_path, record, path)
+        return record
+
+    @app.get("/runs")
+    def list_runs(
+        worker: str | None = None,
+        status: str | None = None,
+        tag: list[str] = Query(default=[]),
+        since: str | None = None,
+    ) -> list[dict]:
+        return run_records.list_runs(sessions_db_path, worker, status, tag, since)
 
     @app.get("/sessions")
     def list_sessions(
@@ -474,8 +554,10 @@ def create_app(
             raise HTTPException(status_code=409, detail="session_ended")
         if spawn_enabled:
             stop(session_id)
-        ended_at = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(timezone.utc)
+        ended_at = now.isoformat()
         sessions_store.mark_ended(sessions_db_path, session_id, ended_at)
+        finalize_run(session_id, now, "failed", "ended before reporting a result")
         return Session(**{**entry, "status": "ended", "ended_at": ended_at})
 
     return app

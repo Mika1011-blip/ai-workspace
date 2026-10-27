@@ -199,6 +199,39 @@ def send_to_session(session_id: str, text: str) -> dict:
 
 
 @mcp.tool
+def report_result(
+    status: str,
+    summary: str | None = None,
+    tags: list[str] | None = None,
+    metrics: dict | None = None,
+    error: str | None = None,
+) -> dict:
+    """Record how this run went -- call it once, when the task is done.
+
+    `status` is your own verdict: success, failed, skipped or needs_input.
+    `summary` is a short plain-text result. `tags` are extra `key:value`
+    tags from the fixed list (scope:research|code|docs|ops, topic:<slug>,
+    severity:info|warn|error). `metrics` may carry `turns` and `cost_usd`.
+    Calls POST /sessions/<this session>/result with this session's token
+    and returns the updated run record. Raises an error on an unknown
+    status or tag.
+    """
+    response = httpx.post(
+        f"{API_BASE_URL}/sessions/{SESSION_ID}/result",
+        json={
+            "status": status,
+            "summary": summary,
+            "tags": tags or [],
+            "metrics": metrics or {},
+            "error": error,
+        },
+        headers=_auth(),
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
 def end_session(session_id: str) -> dict:
     """End a session: stop its process and mark it ended in the registry.
 

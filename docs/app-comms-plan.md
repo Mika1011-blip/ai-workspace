@@ -132,6 +132,17 @@ every worker it creates)
   list_sessions and send_to_session only."* Nothing about what's denied;
   a worker only ever reads about what it can do.
 
+## 4b. Run records
+
+Every `POST /sessions` opens a run record at
+`workers/<name>/runs/<run_id>.json` (status `running`) and indexes it in
+the `runs` table of the same SQLite file. The worker fills in its part
+with the `report_result` MCP tool (`POST /sessions/{id}/result`, its own
+token required); `POST /sessions/{id}/end` and startup reconciliation
+close the record, marking it `failed` if the worker never reported.
+`GET /runs?worker=&status=&tag=&since=` queries the index. Schema, status
+transitions and the tag vocabulary: `docs/run-record.md`.
+
 ## 5. Tests (owner: worktree B, for the API; worktree A for the MCP tools)
 
 - Message to an unknown `session_id` → `404 unknown_session`.
