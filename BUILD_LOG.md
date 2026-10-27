@@ -55,3 +55,6 @@
 - 2026-10-27 17:19:17 — changed: agents/app-master/.claude/agents/context-writer.md, agents/app-master/.claude/agents/interviewer.md, agents/app-master/.claude/settings.json, agents/app-master/.mcp.json, agents/app-master/CLAUDE.md, agents/feature-test-agent/CLAUDE.md, agents/test-b/CLAUDE.md, agents/test-c/CLAUDE.md, mcp_server/tests/test_workspace_server.py, mcp_server/workspace_server.py, agents/ai-news-digest/CLAUDE.md, docs/comms-protocol.md
 - 2026-10-27 17:23:44 — commit 9e1c630 Add crew comms protocol tooling, app comms plan, delete_agent MCP tool, and app-master MCP fixes
 - 2026-10-27 17:23:52 — commit 0fe6d55 Remove placeholder test agents, add ai-news-digest agent
+- 2026-10-27 17:23:59 — commit 7f82a9c Update build log
+- 2026-10-27 17:33:27 — changed: .gitignore, app/main.py, mcp_server/tests/test_workspace_server.py, mcp_server/workspace_server.py, agents/COMMS.md, agents/_shared/README.md, app/sessions_store.py, tests/test_sessions.py
+- 2026-10-27 17:34:19 — commit 6ccc14f Build app-side comms protocol: session registry, endpoints, MCP tools
