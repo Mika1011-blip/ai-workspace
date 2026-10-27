@@ -15,8 +15,12 @@ Usage: `/spawn-worker <role> "<task>"`
    Then continue.
 2. Run:
    ```
-   claude --bg --name <role> "Read .claude/crew/roles/<role>.md and .claude/crew/COMMS.md, then: <task>"
+   claude --bg --permission-mode bypassPermissions --name <role> "Read .claude/crew/roles/<role>.md and .claude/crew/COMMS.md, then: <task>"
    ```
+   The permission mode must match the lead's session, or Claude Code
+   holds every message between them and a background worker can never
+   approve the hold. The lead runs in `bypassPermissions`; change both
+   together if that ever changes.
 3. Read the printed id from the `backgrounded · <id> · <role>` output.
 4. Read `.claude/crew/registry.json` and append a new entry:
    ```json
