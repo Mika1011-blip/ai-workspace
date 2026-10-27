@@ -54,7 +54,11 @@ class Runner(Protocol):
     def send(self, session_id: str, text: str) -> bool:
         """Forward a message into the session. False = this runner can't."""
 
-    def stop(self, session_id: str) -> None: ...
+    def stop(self, session_id: str) -> None:
+        """End the session now, mid-turn if need be."""
+
+    def finish(self, session_id: str) -> None:
+        """End the session once its current turn is over (it has reported)."""
 
     def running_ids(self) -> set[str] | None:
         """Ids running right now, or None when that can't be determined."""
@@ -93,6 +97,11 @@ class CliRunner:
 
     def stop(self, session_id: str) -> None:
         self._stop(session_id)
+
+    def finish(self, session_id: str) -> None:
+        # A --bg session cannot be told "after this turn"; it stays until
+        # someone stops it (as it always has).
+        return None
 
     def running_ids(self) -> set[str] | None:
         return self._running()

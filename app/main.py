@@ -17,7 +17,7 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app import activity, pipeline, projects, render, run_records, sessions_store
+from app import activity, pipeline, projects, render, run_records, sdk_runner, sessions_store
 from app.runner import CliRunner, Runner, SpawnSpec
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -298,6 +298,30 @@ def spawn_argv(
     ]
 
 
+def sdk_options(spec: SpawnSpec, session_id: str):
+    """spawn_argv's twin for the SDK runner: the same wall (--restricted,
+    the same settings JSON, the same MCP server carrying the token), the
+    same first prompt -- but we choose the session id, and the API key, if
+    any, never reaches the session (it runs on this machine's login)."""
+    from claude_agent_sdk import ClaudeAgentOptions
+
+    add_dirs = [Path(d).resolve() for d in (spec.shared_dir, *spec.read_from, *spec.write_to)]
+    options = ClaudeAgentOptions(
+        cwd=str(spec.worker_folder),
+        tools=[*BASE_TOOLS, *spec.tools],
+        permission_mode="dontAsk",
+        settings=json.dumps(lockdown_settings(spec.shared_dir, list(spec.read_from), list(spec.tools))),
+        setting_sources=["project"],
+        add_dirs=[str(d) for d in add_dirs],
+        mcp_servers=lockdown_mcp_config(spec.api_url, spec.token)["mcpServers"],
+        strict_mcp_config=True,
+        session_id=session_id,
+        env=sdk_runner.session_env(),
+        extra_args={"restricted": None},
+    )
+    return options, f"Read CLAUDE.md and ../_shared/COMMS.md, then: {spec.task}"
+
+
 def write_lockdown_settings(worker_folder: Path, shared_dir: Path) -> None:
     """The spec's per-worker settings.json, for anyone running `claude` in the
     folder by hand. Never overwrites a hand-curated one (e.g. app-master)."""
@@ -404,6 +428,13 @@ def create_app(
         return resolved
     # Sessions are run through a Runner; the three callables are the CLI
     # runner's parts, kept so tests (and the host) can fake them one by one.
+    # The SDK runner is the default; the CLI runner stays for RUNNER=cli and
+    # for tests, which fake its parts.
+    use_cli = os.environ.get("RUNNER", "sdk").lower() == "cli" or any(
+        f is not None for f in (spawn_fn, stop_fn, running_ids_fn)
+    )
+    if runner is None and not use_cli:
+        runner = sdk_runner.SdkRunner(sdk_options)
     if runner is None:
         runner = CliRunner(
             lambda spec: spawn_argv(
@@ -504,6 +535,30 @@ def create_app(
             for folder in sorted(workers_path.iterdir())
             if (folder / "CLAUDE.md").is_file()
         ]
+
+    @app.get("/workers/state")
+    def workers_state() -> list[dict]:
+        """One entry per worker for the factory floor (docs/3d-factory.md).
+        Real state from the runner; a worker with no session is idle."""
+        now = datetime.now(timezone.utc).isoformat()
+        by_worker: dict[str, dict] = {}
+        for st in runner.state():
+            if st.worker in by_worker and by_worker[st.worker]["updated_at"] >= st.updated_at:
+                continue
+            by_worker[st.worker] = {
+                "id": st.worker, "status": st.status, "current_task": st.current_task, "tool": st.tool,
+                "context_used": st.context_used, "updated_at": st.updated_at, "session_id": st.session_id,
+                "cost_usd": st.extra.get("cost_usd"), "turns": st.extra.get("turns"), "simulated": False,
+            }
+        out = []
+        for folder in sorted(workers_path.iterdir()):
+            if not (folder / "CLAUDE.md").is_file():
+                continue
+            out.append(by_worker.get(folder.name) or {
+                "id": folder.name, "status": "idle", "current_task": None, "tool": None, "context_used": 0.0,
+                "updated_at": now, "session_id": None, "cost_usd": None, "turns": None, "simulated": False,
+            })
+        return out
 
     @app.get("/workers/{name}")
     def get_worker(name: str) -> Worker:
@@ -676,6 +731,50 @@ def create_app(
         render_step=renderer.render, publish_step=renderer.publish,
     )
 
+    def session_over(session_id: str, info: dict) -> None:
+        """The runner says a session is gone -- it finished, was stopped, or
+        crashed. Close every book it had open; safe to call twice."""
+        entry = sessions_store.get_session(sessions_db_path, session_id)
+        if entry is None:
+            return
+        now = datetime.now(timezone.utc)
+        outcome = info.get("outcome")
+        reason = {
+            "success": "ended without reporting a result",
+            "stopped": "stopped before reporting a result",
+        }.get(outcome, f"session error: {info.get('error')}")
+        if entry["status"] == "live":
+            sessions_store.mark_ended(sessions_db_path, session_id, now.isoformat())
+        record = finalize_run(session_id, now, "failed", reason)
+        if record is not None:
+            metrics = record["metrics"]
+            if info.get("cost_usd") is not None:
+                metrics["cost_usd"] = info["cost_usd"]
+            if info.get("turns"):
+                metrics["turns"] = info["turns"]
+            if info.get("usage"):
+                metrics["tokens"] = info["usage"]
+            run_records.write_record(workers_path, record)
+            run_records.upsert(sessions_db_path, record, run_records.record_path(workers_path, record))
+        studio.on_session_failed(session_id, reason)
+        close_handoff(session_id, "failed", reason)
+        activity.log(
+            workers_path,
+            entry["worker"],
+            "session_over",
+            {
+                "session_id": session_id,
+                "run_id": record["run_id"] if record else None,
+                "status": record["status"] if record else None,
+                "outcome": outcome,
+                "cost_usd": info.get("cost_usd"),
+                "turns": info.get("turns"),
+            },
+        )
+
+    if getattr(runner, "on_end", "absent") is None:
+        runner.on_end = session_over
+
     @app.post("/sessions", status_code=201)
     def spawn_session(
         body: SessionCreate, x_session_token: str | None = Header(default=None)
@@ -754,6 +853,8 @@ def create_app(
         # was a hand-off from the master, the project's log closes it.
         studio.on_report(session_id, body.status, body.summary)
         close_handoff(session_id, body.status, body.summary)
+        # Reported = done: the session ends once this turn is over.
+        runner.finish(session_id)
         return record
 
     @app.post("/projects/{slug}/tasks", status_code=201)
