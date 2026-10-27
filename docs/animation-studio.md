@@ -76,6 +76,11 @@ advance a stage whose declared artifacts lack a sidecar.
 
 ## 2. Stages and gates
 
+> **Optional since `docs/vision-gap.md` §2.1.** The default way work
+> happens is the master dispatching tasks to workers (`POST
+> /projects/{slug}/tasks`, hand-off log in the manifest). The gated
+> pipeline below is a tool the master may run for a full production.
+
 ```
 script ─► script-review ─► storyboard ─► storyboard-review ─► assets ─► asset-review
        ─► render ─► render-review ─► publish
@@ -149,7 +154,10 @@ GET    /projects                      -> [ { slug, title, format, status, stage,
 GET    /projects/{slug}               -> manifest + artifacts (each with its sidecar) + decisions
 PATCH  /projects/{slug}               { mode?, title? }
 DELETE /projects/{slug}               -> 204; removes the folder (host = Docker) and the index row
-POST   /projects/{slug}/start         -> runs the pipeline from the first stage (409 if running)
+POST   /projects/{slug}/tasks         { worker, task, tools?, read_from? } -> 201 session; a hand-off
+                                      (worker gets artifacts/ writable; logged in manifest.handoffs)
+GET    /runs/{run_id}[?wait=<s>]      -> the run record; with wait, long-polls until it leaves `running`
+POST   /projects/{slug}/start         -> runs the gated pipeline from the first stage (409 if running)
 POST   /projects/{slug}/decision      -> see §4; 409 unless status is awaiting_approval
 POST   /projects/{slug}/export        { dest_dir }  -> copies the whole folder to dest_dir/<slug>/ on the host
 GET    /projects/{slug}/artifacts/{path}  -> the file (video/audio/image/text); path validated inside the project
