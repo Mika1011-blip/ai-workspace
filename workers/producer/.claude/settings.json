@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__ai-workspace__create_project",
+      "mcp__ai-workspace__list_projects",
+      "mcp__ai-workspace__get_project",
+      "mcp__ai-workspace__start_pipeline",
+      "mcp__ai-workspace__decide",
+      "mcp__ai-workspace__export_project",
+      "mcp__ai-workspace__delete_project",
+      "mcp__ai-workspace__list_sessions",
+      "mcp__ai-workspace__send_to_session"
+    ],
+    "deny": ["Edit", "Write", "Bash", "SendMessage", "ListAgents"]
+  },
+  "crossSessionInbound": "refuse"
+}

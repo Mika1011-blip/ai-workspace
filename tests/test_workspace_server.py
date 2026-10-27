@@ -369,6 +369,123 @@ def test_end_session_raises_on_unknown_session(monkeypatch):
         ws.end_session("does-not-exist")
 
 
+# --- studio projects -----------------------------------------------------------
+
+
+def test_create_project_posts_all_fields(monkeypatch):
+    calls = []
+
+    def fake_post(url, json):
+        calls.append((url, json))
+        return FakeResponse(201, {"slug": "first-reel", "status": "created"})
+
+    monkeypatch.setattr(ws.httpx, "post", fake_post)
+
+    result = ws.create_project("first-reel", "First reel", "social-short")
+
+    assert calls == [(
+        f"{ws.API_BASE_URL}/projects",
+        {"slug": "first-reel", "title": "First reel", "format": "social-short", "renderer": "ffmpeg", "mode": "guided"},
+    )]
+    assert result == {"slug": "first-reel", "status": "created"}
+
+
+def test_create_project_raises_on_duplicate(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "post", lambda url, json: FakeResponse(409))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.create_project("first-reel", "x", "social-short")
+
+
+def test_list_and_get_project(monkeypatch):
+    calls = []
+
+    def fake_get(url):
+        calls.append(url)
+        return FakeResponse(200, {"slug": "first-reel"} if url.endswith("/first-reel") else [{"slug": "first-reel"}])
+
+    monkeypatch.setattr(ws.httpx, "get", fake_get)
+
+    assert ws.list_projects() == [{"slug": "first-reel"}]
+    assert ws.get_project("first-reel") == {"slug": "first-reel"}
+    assert calls == [f"{ws.API_BASE_URL}/projects", f"{ws.API_BASE_URL}/projects/first-reel"]
+
+
+def test_start_pipeline_posts(monkeypatch):
+    calls = []
+
+    def fake_post(url):
+        calls.append(url)
+        return FakeResponse(200, {"status": "running", "stage": "script"})
+
+    monkeypatch.setattr(ws.httpx, "post", fake_post)
+
+    assert ws.start_pipeline("first-reel") == {"status": "running", "stage": "script"}
+    assert calls == [f"{ws.API_BASE_URL}/projects/first-reel/start"]
+
+
+def test_decide_posts_with_token_and_producer_fallback(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ws, "SESSION_TOKEN", "tok-1")
+
+    def fake_post(url, json, headers):
+        calls.append((url, json, headers))
+        return FakeResponse(200, {"status": "running"})
+
+    monkeypatch.setattr(ws.httpx, "post", fake_post)
+
+    ws.decide("first-reel", "revise", "make the hook a question")
+
+    assert calls == [(
+        f"{ws.API_BASE_URL}/projects/first-reel/decision",
+        {"decision": "revise", "notes": "make the hook a question", "by": "producer"},
+        {"X-Session-Token": "tok-1"},
+    )]
+
+
+def test_decide_raises_when_nothing_to_decide(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "post", lambda url, json, headers: FakeResponse(409))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.decide("first-reel", "approve")
+
+
+def test_export_project_posts_dest(monkeypatch):
+    calls = []
+
+    def fake_post(url, json):
+        calls.append((url, json))
+        return FakeResponse(200, {"exported_to": "C:/Videos/first-reel"})
+
+    monkeypatch.setattr(ws.httpx, "post", fake_post)
+
+    assert ws.export_project("first-reel", "C:/Videos") == {"exported_to": "C:/Videos/first-reel"}
+    assert calls == [(f"{ws.API_BASE_URL}/projects/first-reel/export", {"dest_dir": "C:/Videos"})]
+
+
+def test_delete_project_refuses_without_confirm(monkeypatch):
+    def no_delete(*args, **kwargs):
+        raise AssertionError("must not call the API without confirm")
+
+    monkeypatch.setattr(ws.httpx, "delete", no_delete)
+
+    with pytest.raises(ValueError, match="confirm=True"):
+        ws.delete_project("first-reel")
+
+
+def test_delete_project_with_confirm(monkeypatch):
+    calls = []
+
+    def fake_delete(url):
+        calls.append(url)
+        return FakeResponse(204, content=b"")
+
+    monkeypatch.setattr(ws.httpx, "delete", fake_delete)
+
+    assert ws.delete_project("first-reel", confirm=True) == {"deleted": "first-reel"}
+    assert calls == [f"{ws.API_BASE_URL}/projects/first-reel"]
+
+
 def test_send_to_session_raises_on_unknown_session(monkeypatch):
     monkeypatch.setattr(ws.httpx, "post", lambda url, json, headers: FakeResponse(404))
 

@@ -78,6 +78,14 @@ Things that live outside git and bit us once each:
    ```
    Without it, a project fails at its render step with the docker error in
    `artifacts/07-render.log`.
+7. **The studio has two front doors.** The gallery at `/gallery` (grid of
+   projects, every artifact with its description, the checkpoint buttons)
+   and the `producer` worker: run `claude` inside `workers/producer` and
+   talk to it — it creates and starts projects and turns what you say at a
+   checkpoint into a decision. Like app-master, it is its own Claude Code
+   project with only the project tools granted; its gitignored
+   `.claude/settings.local.json` needs the same two lines as app-master's
+   (item 4).
 
 ## Where things are
 
