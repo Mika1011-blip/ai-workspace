@@ -263,6 +263,21 @@ def assign_task(project: str, worker: str, task: str, tools: list[str] | None = 
 
 
 @mcp.tool
+def render_project(project: str) -> dict:
+    """Render and publish a project from artifacts/07-render/ (the renderer
+    worker must have written it first): the API runs the renderer image,
+    extracts frames, and publishes a browser-safe final.mp4 + preview.jpg.
+    Returns the manifest, now `published`. Calls POST
+    /projects/{project}/render; raises an error if there is nothing to
+    render or the render fails (the project is then `failed`, with the
+    reason).
+    """
+    response = httpx.post(f"{API_BASE_URL}/projects/{project}/render", headers=_auth(), timeout=900)
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
 def wait_for_run(run_id: str, timeout_s: int = 300) -> dict:
     """Block until a run finishes (or `timeout_s` passes) and return its
     record: status (success / failed / needs_input / ... or still

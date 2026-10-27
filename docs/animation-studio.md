@@ -157,6 +157,7 @@ DELETE /projects/{slug}               -> 204; removes the folder (host = Docker)
 POST   /projects/{slug}/tasks         { worker, task, tools?, read_from? } -> 201 session; a hand-off
                                       (worker gets artifacts/ writable; logged in manifest.handoffs)
 GET    /runs/{run_id}[?wait=<s>]      -> the run record; with wait, long-polls until it leaves `running`
+POST   /projects/{slug}/render        -> render + publish from artifacts/07-render/ (dispatch mode); 409 if missing
 POST   /projects/{slug}/start         -> runs the gated pipeline from the first stage (409 if running)
 POST   /projects/{slug}/decision      -> see §4; 409 unless status is awaiting_approval
 POST   /projects/{slug}/export        { dest_dir }  -> copies the whole folder to dest_dir/<slug>/ on the host

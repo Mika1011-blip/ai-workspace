@@ -786,6 +786,44 @@ def create_app(
         projects.map_handoff(sessions_db_path, result["session_id"], slug)
         return Session(**result)
 
+    @app.post("/projects/{slug}/render")
+    def render_project(slug: str, x_session_token: str | None = Header(default=None)) -> dict:
+        """Render and publish a project from whatever is in artifacts/07-render/
+        (dispatch mode's counterpart of the pipeline's render and publish
+        steps). Both steps are logged as `api` hand-offs; a failure leaves
+        the project `failed` with the container's last line as the error."""
+        folder, manifest = project_or_404(slug)
+        if not (folder / "artifacts" / "07-render").is_dir():
+            raise HTTPException(status_code=409, detail="nothing_to_render: artifacts/07-render/ is missing")
+        session = authenticate(sessions_db_path, x_session_token)
+        by = session["session_id"] if session else "app-master"
+        now = lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+
+        def log(step: str, ok: bool, output: str) -> None:
+            manifest.setdefault("handoffs", []).append(
+                {
+                    "at": now(), "by": by, "worker": "api", "task": step, "session_id": None, "run_id": None,
+                    "status": "success" if ok else "failed",
+                    "summary": (output or "")[-300:].strip() or None, "ended_at": now(),
+                }
+            )
+
+        ok, output = renderer.render(folder, manifest["renderer"])
+        log("render", ok, output)
+        if ok:
+            ok, output = renderer.publish(folder)
+            log("publish", ok, output)
+        if ok:
+            manifest["status"], manifest["stage"], manifest["error"] = "published", None, None
+        else:
+            last = (output or "failed").strip().splitlines()
+            manifest["status"], manifest["error"] = "failed", f"render: {last[-1] if last else 'failed'}"
+        projects.write_manifest(folder, manifest, datetime.now(timezone.utc))
+        projects.upsert(sessions_db_path, manifest, folder)
+        if not ok:
+            raise HTTPException(status_code=502, detail=manifest["error"])
+        return manifest
+
     @app.get("/runs/{run_id}")
     def get_run(run_id: str, wait: float = 0) -> dict:
         """One run record in full. With `wait` (seconds, max 600) the call
