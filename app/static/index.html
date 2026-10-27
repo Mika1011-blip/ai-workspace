@@ -42,7 +42,7 @@
     .edit-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
     .edit-actions[hidden] { display: none; }
 
-    .new-agent-form { display: flex; flex-direction: column; gap: 1rem; max-width: 480px; }
+    .new-worker-form { display: flex; flex-direction: column; gap: 1rem; max-width: 480px; }
     .field { display: flex; flex-direction: column; }
     .field select, .field input { width: 100%; }
     #preview {
@@ -54,13 +54,13 @@
   </style>
 </head>
 <body>
-  <h1>Agents</h1>
+  <h1>Workers</h1>
 
-  <section aria-labelledby="new-agent-heading">
-    <h2 id="new-agent-heading">New agent</h2>
-    <p class="section-intro">Pick a starting template, name the agent and describe its role. The preview below is exactly what gets written to its CLAUDE.md.</p>
+  <section aria-labelledby="new-worker-heading">
+    <h2 id="new-worker-heading">New worker</h2>
+    <p class="section-intro">Pick a starting template, name the worker and describe its role. The preview below is exactly what gets written to its CLAUDE.md.</p>
 
-    <form id="new-agent-form" class="new-agent-form">
+    <form id="new-worker-form" class="new-worker-form">
       <div class="field">
         <label for="template-select">Template</label>
         <select id="template-select">
@@ -69,13 +69,13 @@
       </div>
 
       <div class="field">
-        <label for="new-agent-name">Name</label>
-        <input id="new-agent-name" placeholder="code-reviewer" autocomplete="off" required>
+        <label for="new-worker-name">Name</label>
+        <input id="new-worker-name" placeholder="code-reviewer" autocomplete="off" required>
       </div>
 
       <div class="field">
-        <label for="new-agent-role">Role</label>
-        <input id="new-agent-role" placeholder="Reviews pull requests for bugs and style" autocomplete="off">
+        <label for="new-worker-role">Role</label>
+        <input id="new-worker-role" placeholder="Reviews pull requests for bugs and style" autocomplete="off">
       </div>
 
       <div class="field">
@@ -83,31 +83,31 @@
         <pre id="preview">(fill in the fields above)</pre>
       </div>
 
-      <p class="error" id="new-agent-error"></p>
-      <button type="submit">Create agent</button>
+      <p class="error" id="new-worker-error"></p>
+      <button type="submit">Create worker</button>
     </form>
   </section>
 
-  <section aria-labelledby="agents-heading">
-    <h2 id="agents-heading">Existing agents <span id="count">(0)</span></h2>
+  <section aria-labelledby="workers-heading">
+    <h2 id="workers-heading">Existing workers <span id="count">(0)</span></h2>
 
     <form id="quick-create-form">
-      <input id="name" placeholder="new-agent-name" autocomplete="off" required>
+      <input id="name" placeholder="new-worker-name" autocomplete="off" required>
       <button type="submit">Quick create</button>
     </form>
     <p id="error"></p>
 
-    <p id="empty" hidden>No agents yet.</p>
-    <ul id="agents"></ul>
+    <p id="empty" hidden>No workers yet.</p>
+    <ul id="workers"></ul>
   </section>
 
   <script>
-    const list = document.getElementById("agents");
+    const list = document.getElementById("workers");
     const empty = document.getElementById("empty");
     const error = document.getElementById("error");
     const count = document.getElementById("count");
 
-    function addAgent(agent) {
+    function addWorker(worker) {
       const li = document.createElement("li");
       const details = document.createElement("details");
       const summary = document.createElement("summary");
@@ -119,11 +119,11 @@
       const cancelButton = document.createElement("button");
       const saveError = document.createElement("p");
 
-      summary.textContent = agent.name;
-      pre.textContent = agent.instructions;
+      summary.textContent = worker.name;
+      pre.textContent = worker.instructions;
       editButton.textContent = "Edit";
       textarea.hidden = true;
-      textarea.value = agent.instructions;
+      textarea.value = worker.instructions;
       saveButton.textContent = "Save";
       cancelButton.textContent = "Cancel";
       actions.className = "edit-actions";
@@ -140,7 +140,7 @@
       });
 
       cancelButton.addEventListener("click", () => {
-        textarea.value = agent.instructions;
+        textarea.value = worker.instructions;
         saveError.textContent = "";
         pre.hidden = false;
         editButton.hidden = false;
@@ -150,7 +150,7 @@
 
       saveButton.addEventListener("click", async () => {
         saveError.textContent = "";
-        const res = await fetch(`/agents/${encodeURIComponent(agent.name)}`, {
+        const res = await fetch(`/workers/${encodeURIComponent(worker.name)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ instructions: textarea.value }),
@@ -159,7 +159,7 @@
           const updated = await res.json();
           // What the server stored is the single source of truth for both
           // the display and the next edit.
-          agent.instructions = updated.instructions;
+          worker.instructions = updated.instructions;
           pre.textContent = updated.instructions;
           textarea.value = updated.instructions;
           pre.hidden = false;
@@ -167,7 +167,7 @@
           textarea.hidden = true;
           actions.hidden = true;
         } else if (res.status === 404) {
-          saveError.textContent = "This agent no longer exists.";
+          saveError.textContent = "This worker no longer exists.";
         } else {
           saveError.textContent = `Something went wrong (HTTP ${res.status}).`;
         }
@@ -179,29 +179,29 @@
       empty.hidden = true;
     }
 
-    async function loadAgents() {
-      const res = await fetch("/agents");
-      const agents = await res.json();
+    async function loadWorkers() {
+      const res = await fetch("/workers");
+      const workers = await res.json();
       list.replaceChildren();
-      agents.forEach(addAgent);
-      empty.hidden = agents.length > 0;
-      count.textContent = `(${agents.length})`;
+      workers.forEach(addWorker);
+      empty.hidden = workers.length > 0;
+      count.textContent = `(${workers.length})`;
     }
 
     document.getElementById("quick-create-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const input = document.getElementById("name");
       error.textContent = "";
-      const res = await fetch("/agents", {
+      const res = await fetch("/workers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: input.value.trim() }),
       });
       if (res.status === 201) {
         input.value = "";
-        await loadAgents();
+        await loadWorkers();
       } else if (res.status === 409) {
-        error.textContent = "An agent with that name already exists.";
+        error.textContent = "A worker with that name already exists.";
       } else if (res.status === 400) {
         error.textContent = "Use lowercase letters, numbers and single dashes (e.g. code-reviewer), up to 40 characters.";
       } else {
@@ -209,19 +209,19 @@
       }
     });
 
-    // --- New agent (from template) ---
+    // --- New worker (from template) ---
 
     const templateSelect = document.getElementById("template-select");
-    const nameInput = document.getElementById("new-agent-name");
-    const roleInput = document.getElementById("new-agent-role");
+    const nameInput = document.getElementById("new-worker-name");
+    const roleInput = document.getElementById("new-worker-role");
     const preview = document.getElementById("preview");
-    const newAgentError = document.getElementById("new-agent-error");
-    const newAgentForm = document.getElementById("new-agent-form");
+    const newWorkerError = document.getElementById("new-worker-error");
+    const newWorkerForm = document.getElementById("new-worker-form");
 
     const templateBodies = new Map();
 
     function starterInstructions(name) {
-      return `# ${name || "agent-name"}\n\nDescribe what this agent does and how it should work.\n`;
+      return `# ${name || "worker-name"}\n\nDescribe what this worker does and how it should work.\n`;
     }
 
     function buildInstructions() {
@@ -232,7 +232,7 @@
       const lines = (body || "").split("\n");
       const hasHeading = lines[0].startsWith("# ");
       const rest = (hasHeading ? lines.slice(1).join("\n") : body || "").replace(/^\n+/, "");
-      const heading = `# ${name || "agent-name"}`;
+      const heading = `# ${name || "worker-name"}`;
       const roleLine = role ? `\n**Role:** ${role}\n` : "";
       return `${heading}\n${roleLine}\n${rest}`.replace(/\n{3,}/g, "\n\n");
     }
@@ -244,7 +244,7 @@
     async function loadTemplates() {
       const res = await fetch("/templates");
       if (!res.ok) {
-        newAgentError.textContent = "Could not load templates; you can still create a blank agent.";
+        newWorkerError.textContent = "Could not load templates; you can still create a blank worker.";
         return;
       }
       const templates = await res.json();
@@ -256,7 +256,7 @@
       }
     }
 
-    const createButton = newAgentForm.querySelector("button[type=submit]");
+    const createButton = newWorkerForm.querySelector("button[type=submit]");
 
     async function ensureTemplateLoaded(name) {
       if (!name || templateBodies.has(name)) return;
@@ -267,7 +267,7 @@
           const data = await res.json();
           templateBodies.set(name, data.content);
         } else {
-          newAgentError.textContent = `Could not load that template (HTTP ${res.status}).`;
+          newWorkerError.textContent = `Could not load that template (HTTP ${res.status}).`;
         }
       } finally {
         createButton.disabled = false;
@@ -275,7 +275,7 @@
     }
 
     templateSelect.addEventListener("change", async () => {
-      newAgentError.textContent = "";
+      newWorkerError.textContent = "";
       await ensureTemplateLoaded(templateSelect.value);
       updatePreview();
     });
@@ -283,31 +283,31 @@
     nameInput.addEventListener("input", updatePreview);
     roleInput.addEventListener("input", updatePreview);
 
-    newAgentForm.addEventListener("submit", async (event) => {
+    newWorkerForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      newAgentError.textContent = "";
+      newWorkerError.textContent = "";
       await ensureTemplateLoaded(templateSelect.value);
       const name = nameInput.value.trim();
       const instructions = buildInstructions();
 
       // One call: name and content together, so there is no half-created
-      // agent if anything fails.
-      const createRes = await fetch("/agents", {
+      // worker if anything fails.
+      const createRes = await fetch("/workers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, instructions }),
       });
 
       if (createRes.status === 409) {
-        newAgentError.textContent = "An agent with that name already exists.";
+        newWorkerError.textContent = "A worker with that name already exists.";
         return;
       }
       if (createRes.status === 400) {
-        newAgentError.textContent = "Use lowercase letters, numbers and single dashes (e.g. code-reviewer), up to 40 characters.";
+        newWorkerError.textContent = "Use lowercase letters, numbers and single dashes (e.g. code-reviewer), up to 40 characters.";
         return;
       }
       if (createRes.status !== 201) {
-        newAgentError.textContent = `Something went wrong (HTTP ${createRes.status}).`;
+        newWorkerError.textContent = `Something went wrong (HTTP ${createRes.status}).`;
         return;
       }
 
@@ -315,12 +315,12 @@
       roleInput.value = "";
       templateSelect.value = "";
       updatePreview();
-      await loadAgents();
+      await loadWorkers();
     });
 
     updatePreview();
     loadTemplates();
-    loadAgents();
+    loadWorkers();
   </script>
 </body>
 </html>

@@ -9,7 +9,7 @@ services:
       SPAWN_ENABLED: "false"
     volumes:
       # All on your disk, so they survive container rebuilds.
-      - ./agents:/app/agents
-      - ./agent_templates:/app/agent_templates
+      - ./workers:/app/workers
+      - ./worker_templates:/app/worker_templates
       - ./data:/app/data
       - ./runs:/app/runs

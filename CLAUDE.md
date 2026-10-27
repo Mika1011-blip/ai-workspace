@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Web app to create and manage Claude agents. Each agent is a folder `agents/<name>/` with a `CLAUDE.md`.
+Web app to create and manage Claude workers. Each worker is a folder `workers/<name>/` with a `CLAUDE.md`.
 
 ## Working with Mika
 
@@ -24,10 +24,10 @@ uvicorn app.main:app --reload
 pytest
 
 # Run a single test
-pytest tests/test_agents.py::test_duplicate_name_is_refused
+pytest tests/test_workers.py::test_duplicate_name_is_refused
 
 # Run one parametrized case
-pytest "tests/test_agents.py::test_bad_name_is_refused[../secret]"
+pytest "tests/test_workers.py::test_bad_name_is_refused[../secret]"
 ```
 
 There is no lint/format command configured in this repo.
@@ -35,8 +35,8 @@ There is no lint/format command configured in this repo.
 ## Rules
 
 - Every endpoint gets pytest tests: success, not-found, invalid name.
-- Agent names: lowercase letters, digits, dashes. Validate on every endpoint that takes a name.
-- Never read or write outside `agents/` from agent endpoints.
+- Worker names: lowercase letters, digits, dashes. Validate on every endpoint that takes a name.
+- Never read or write outside `workers/` from worker endpoints.
 - One feature per branch; open PRs with `/ship`.
 - Before messaging another session, follow @.claude/crew/COMMS.md.
 

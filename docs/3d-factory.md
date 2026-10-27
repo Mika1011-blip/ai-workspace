@@ -1,10 +1,10 @@
 # 3D Factory view
 
-A 3D view of the workspace: each agent is a workstation in a factory, and its live activity is shown on the station.
+A 3D view of the workspace: each worker is a workstation in a factory, and its live activity is shown on the station.
 
 ## What it shows
-- One station per agent (from `GET /agents`). The master agent is a central control booth.
-- Each station shows the agent's status with an animation **and** an icon + text label (never colour alone).
+- One station per worker (from `GET /workers`). The master worker is a central control booth.
+- Each station shows the worker's status with an animation **and** an icon + text label (never colour alone).
 - Clicking a station opens a side panel: name, status, current task, and a link to edit its CLAUDE.md.
 - A plain list view of the same data is always available as a fallback.
 
@@ -17,7 +17,7 @@ A 3D view of the workspace: each agent is a workstation in a factory, and its li
 The scene renders only what this endpoint returns:
 
 ```
-GET /agents/state
+GET /workers/state
 [
   {
     "id": "researcher",
@@ -30,15 +30,15 @@ GET /agents/state
 ]
 ```
 
-- Until agents really run, the backend returns **simulated** state (cycling statuses), and the page shows a visible "SIMULATED" badge.
+- Until workers really run, the backend returns **simulated** state (cycling statuses), and the page shows a visible "SIMULATED" badge.
 - `updated_at` older than 60 s → show the station as "stale".
 
 ## Milestones
-1. `/factory` page: stations from `GET /agents`, simulated `GET /agents/state`, click → side panel, list fallback.
-2. New agents appear as new stations without reloading.
-3. Real status from agent runs (in progress, success, error) and run history in the panel.
+1. `/factory` page: stations from `GET /workers`, simulated `GET /workers/state`, click → side panel, list fallback.
+2. New workers appear as new stations without reloading.
+3. Real status from worker runs (in progress, success, error) and run history in the panel.
 4. Live updates streamed from running sessions (server-sent events); context gauge per station; clear/compact actions in the panel.
 
 ## Tests
-- `GET /agents/state` returns one entry per agent, with valid status values.
+- `GET /workers/state` returns one entry per worker, with valid status values.
 - Simulated mode is flagged in the response (`"simulated": true` header or field).

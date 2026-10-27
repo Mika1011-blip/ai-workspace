@@ -30,13 +30,13 @@ def _reset_fakes():
 
 
 @pytest.fixture
-def agents_dir(tmp_path):
-    return tmp_path / "agents"
+def workers_dir(tmp_path):
+    return tmp_path / "workers"
 
 
 @pytest.fixture
 def templates_dir(tmp_path):
-    return tmp_path / "agent_templates"
+    return tmp_path / "worker_templates"
 
 
 @pytest.fixture
@@ -49,9 +49,9 @@ def messages_log(tmp_path):
     return tmp_path / "messages.jsonl"
 
 
-def make_app(agents_dir, templates_dir, sessions_db, messages_log, **overrides):
+def make_app(workers_dir, templates_dir, sessions_db, messages_log, **overrides):
     kwargs = dict(
-        agents_dir=agents_dir,
+        workers_dir=workers_dir,
         templates_dir=templates_dir,
         sessions_db=sessions_db,
         messages_log=messages_log,
@@ -64,22 +64,22 @@ def make_app(agents_dir, templates_dir, sessions_db, messages_log, **overrides):
 
 
 @pytest.fixture
-def client(agents_dir, templates_dir, sessions_db, messages_log):
-    return TestClient(make_app(agents_dir, templates_dir, sessions_db, messages_log))
+def client(workers_dir, templates_dir, sessions_db, messages_log):
+    return TestClient(make_app(workers_dir, templates_dir, sessions_db, messages_log))
 
 
-def create_agent(client, name):
-    return client.post("/agents", json={"name": name})
+def create_worker(client, name):
+    return client.post("/workers", json={"name": name})
 
 
-def spawn(client, agent, task="do something", **extra):
-    return client.post("/sessions", json={"agent": agent, "task": task, **extra})
+def spawn(client, worker, task="do something", **extra):
+    return client.post("/sessions", json={"worker": worker, "task": task, **extra})
 
 
 def mcp_env_of(session_id):
     for argv, _ in SPAWNED:
         mcp = json.loads(argv[argv.index("--mcp-config") + 1])
-        env = mcp["mcpServers"]["agent-workspace"]["env"]
+        env = mcp["mcpServers"]["ai-workspace"]["env"]
         if env["SESSION_ID"] == session_id:
             return env
     raise KeyError(session_id)
@@ -93,7 +93,7 @@ def auth(session_id):
 
 class TestSpawnSession:
     def test_spawns_a_live_session(self, client):
-        create_agent(client, "researcher")
+        create_worker(client, "researcher")
 
         res = spawn(client, "researcher")
 
@@ -101,28 +101,28 @@ class TestSpawnSession:
         body = res.json()
         argv, cwd = SPAWNED[0]
         assert body["session_id"] == argv[argv.index("--session-id") + 1][:8]
-        assert body["agent"] == "researcher"
+        assert body["worker"] == "researcher"
         assert body["status"] == "live"
         assert body["ended_at"] is None
 
-    def test_unknown_agent_is_404(self, client):
+    def test_unknown_worker_is_404(self, client):
         res = spawn(client, "does-not-exist")
 
         assert res.status_code == 404
 
-    def test_invalid_agent_name_is_400(self, client):
+    def test_invalid_worker_name_is_400(self, client):
         res = spawn(client, "Bad Name")
 
         assert res.status_code == 400
 
     def test_disabled_spawning_is_503_and_registers_nothing(
-        self, agents_dir, templates_dir, sessions_db, messages_log
+        self, workers_dir, templates_dir, sessions_db, messages_log
     ):
         # What Docker runs: the image has no `claude` CLI, so compose sets
         # SPAWN_ENABLED=false and the endpoint must refuse cleanly.
-        app = make_app(agents_dir, templates_dir, sessions_db, messages_log, spawn_enabled=False)
+        app = make_app(workers_dir, templates_dir, sessions_db, messages_log, spawn_enabled=False)
         client = TestClient(app)
-        create_agent(client, "researcher")
+        create_worker(client, "researcher")
 
         res = spawn(client, "researcher")
 
@@ -135,21 +135,21 @@ class TestSpawnLockdown:
     """The wall (docs/comms-protocol.md §5), as the API puts it on the
     command line of every app session it starts."""
 
-    def _spawn_argv(self, client, agents_dir):
-        create_agent(client, "researcher")
+    def _spawn_argv(self, client, workers_dir):
+        create_worker(client, "researcher")
         res = spawn(client, "researcher", task="summarize")
         assert res.status_code == 201
         argv, cwd = SPAWNED[0]
         return res.json()["session_id"], argv, cwd
 
-    def test_runs_in_the_agents_own_folder(self, client, agents_dir):
-        _, argv, cwd = self._spawn_argv(client, agents_dir)
+    def test_runs_in_the_workers_own_folder(self, client, workers_dir):
+        _, argv, cwd = self._spawn_argv(client, workers_dir)
 
-        assert cwd == agents_dir / "researcher"
+        assert cwd == workers_dir / "researcher"
         assert argv[-1] == "Read CLAUDE.md and ../_shared/COMMS.md, then: summarize"
 
-    def test_restricted_strict_mcp_and_no_prompts(self, client, agents_dir):
-        _, argv, _ = self._spawn_argv(client, agents_dir)
+    def test_restricted_strict_mcp_and_no_prompts(self, client, workers_dir):
+        _, argv, _ = self._spawn_argv(client, workers_dir)
 
         assert "--bg" in argv
         assert "--restricted" in argv
@@ -157,27 +157,27 @@ class TestSpawnLockdown:
         assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
         assert "bypassPermissions" not in argv
 
-    def test_claude_code_messaging_is_closed(self, client, agents_dir):
-        _, argv, _ = self._spawn_argv(client, agents_dir)
+    def test_claude_code_messaging_is_closed(self, client, workers_dir):
+        _, argv, _ = self._spawn_argv(client, workers_dir)
         settings = json.loads(argv[argv.index("--settings") + 1])
 
         for tool in ("SendMessage", "ListAgents", "Edit", "Write", "Bash"):
             assert tool in settings["permissions"]["deny"]
         assert settings["crossSessionInbound"] == "refuse"
-        assert "mcp__agent-workspace__*" in settings["permissions"]["allow"]
+        assert "mcp__ai-workspace__*" in settings["permissions"]["allow"]
 
-    def test_only_our_mcp_server_with_its_own_session_id(self, client, agents_dir):
-        sid, argv, _ = self._spawn_argv(client, agents_dir)
+    def test_only_our_mcp_server_with_its_own_session_id(self, client, workers_dir):
+        sid, argv, _ = self._spawn_argv(client, workers_dir)
         mcp = json.loads(argv[argv.index("--mcp-config") + 1])
 
-        assert list(mcp["mcpServers"]) == ["agent-workspace"]
-        server = mcp["mcpServers"]["agent-workspace"]
+        assert list(mcp["mcpServers"]) == ["ai-workspace"]
+        server = mcp["mcpServers"]["ai-workspace"]
         assert server["env"]["SESSION_ID"] == sid
         assert server["env"]["WORKSPACE_API_URL"].startswith("http")
         assert server["args"][0].endswith("workspace_server.py")
 
-    def test_token_goes_only_to_the_sessions_mcp_env(self, client, agents_dir, sessions_db):
-        sid, argv, _ = self._spawn_argv(client, agents_dir)
+    def test_token_goes_only_to_the_sessions_mcp_env(self, client, workers_dir, sessions_db):
+        sid, argv, _ = self._spawn_argv(client, workers_dir)
         token = mcp_env_of(sid)["SESSION_TOKEN"]
 
         assert len(token) >= 32
@@ -186,23 +186,23 @@ class TestSpawnLockdown:
         stored = sessions_store.get_session(sessions_db, sid)["token_hash"]
         assert stored != token and len(stored) == 64
 
-    def test_every_session_gets_its_own_token(self, client, agents_dir):
-        create_agent(client, "researcher")
+    def test_every_session_gets_its_own_token(self, client, workers_dir):
+        create_worker(client, "researcher")
         a = spawn(client, "researcher").json()["session_id"]
         b = spawn(client, "researcher").json()["session_id"]
 
         assert mcp_env_of(a)["SESSION_TOKEN"] != mcp_env_of(b)["SESSION_TOKEN"]
 
-    def test_shared_folder_is_the_only_extra_directory(self, client, agents_dir):
-        _, argv, _ = self._spawn_argv(client, agents_dir)
+    def test_shared_folder_is_the_only_extra_directory(self, client, workers_dir):
+        _, argv, _ = self._spawn_argv(client, workers_dir)
 
         assert argv.count("--add-dir") == 1
-        assert argv[argv.index("--add-dir") + 1] == str(agents_dir / "_shared")
-        assert (agents_dir / "_shared").is_dir()
+        assert argv[argv.index("--add-dir") + 1] == str(workers_dir / "_shared")
+        assert (workers_dir / "_shared").is_dir()
 
-    def test_writes_the_specs_settings_file_once(self, client, agents_dir):
-        self._spawn_argv(client, agents_dir)
-        settings_file = agents_dir / "researcher" / ".claude" / "settings.json"
+    def test_writes_the_specs_settings_file_once(self, client, workers_dir):
+        self._spawn_argv(client, workers_dir)
+        settings_file = workers_dir / "researcher" / ".claude" / "settings.json"
         assert settings_file.is_file()
         written = json.loads(settings_file.read_text(encoding="utf-8"))
         assert "SendMessage" in written["permissions"]["deny"]
@@ -216,16 +216,16 @@ class TestSpawnLockdown:
         }
 
     def test_refuses_if_claude_started_a_different_id(
-        self, agents_dir, templates_dir, sessions_db, messages_log
+        self, workers_dir, templates_dir, sessions_db, messages_log
     ):
         def wrong_id_spawn(argv, cwd):
             return "backgrounded · deadbeef · researcher\n"
 
         client = TestClient(
-            make_app(agents_dir, templates_dir, sessions_db, messages_log, spawn_fn=wrong_id_spawn),
+            make_app(workers_dir, templates_dir, sessions_db, messages_log, spawn_fn=wrong_id_spawn),
             raise_server_exceptions=False,
         )
-        create_agent(client, "researcher")
+        create_worker(client, "researcher")
 
         res = spawn(client, "researcher")
 
@@ -240,9 +240,9 @@ class TestListSessions:
         assert res.status_code == 404
 
     def test_returns_only_what_caller_may_reach(self, client, sessions_db):
-        create_agent(client, "researcher")
-        create_agent(client, "writer")
-        create_agent(client, "reviewer")
+        create_worker(client, "researcher")
+        create_worker(client, "writer")
+        create_worker(client, "reviewer")
 
         a = spawn(client, "researcher", may_talk_to=[]).json()["session_id"]
         b = spawn(client, "writer", may_talk_to=[a]).json()["session_id"]
@@ -256,8 +256,8 @@ class TestListSessions:
         assert all("token_hash" not in s and "token" not in s for s in res.json())
 
     def test_wrong_or_missing_token_is_401(self, client):
-        create_agent(client, "researcher")
-        create_agent(client, "writer")
+        create_worker(client, "researcher")
+        create_worker(client, "writer")
         a = spawn(client, "researcher").json()["session_id"]
         b = spawn(client, "writer").json()["session_id"]
 
@@ -271,8 +271,8 @@ class TestListSessions:
 
 class TestSendMessage:
     def _two_live_sessions(self, client):
-        create_agent(client, "researcher")
-        create_agent(client, "writer")
+        create_worker(client, "researcher")
+        create_worker(client, "writer")
         a = spawn(client, "researcher", may_talk_to=[]).json()["session_id"]
         b = spawn(client, "writer", may_talk_to=[a]).json()["session_id"]
         return a, b
@@ -336,8 +336,8 @@ class TestSendMessage:
         assert res.json()["detail"] == "session_ended"
 
     def test_sender_not_in_may_talk_to_is_403(self, client):
-        create_agent(client, "researcher")
-        create_agent(client, "writer")
+        create_worker(client, "researcher")
+        create_worker(client, "writer")
         a = spawn(client, "researcher", may_talk_to=[]).json()["session_id"]
         b = spawn(client, "writer", may_talk_to=[]).json()["session_id"]  # doesn't list a
 
@@ -360,7 +360,7 @@ class TestSendMessage:
 
 class TestEndSession:
     def test_ends_a_live_session_and_stops_its_process(self, client):
-        create_agent(client, "researcher")
+        create_worker(client, "researcher")
         sid = spawn(client, "researcher").json()["session_id"]
 
         res = client.post(f"/sessions/{sid}/end")
@@ -377,7 +377,7 @@ class TestEndSession:
         assert res.json()["detail"] == "unknown_session"
 
     def test_already_ended_is_409_and_not_stopped_twice(self, client):
-        create_agent(client, "researcher")
+        create_worker(client, "researcher")
         sid = spawn(client, "researcher").json()["session_id"]
         client.post(f"/sessions/{sid}/end")
 
@@ -388,8 +388,8 @@ class TestEndSession:
         assert STOPPED == [sid]
 
     def test_ended_session_can_no_longer_be_messaged(self, client):
-        create_agent(client, "researcher")
-        create_agent(client, "writer")
+        create_worker(client, "researcher")
+        create_worker(client, "writer")
         a = spawn(client, "researcher", may_talk_to=[]).json()["session_id"]
         b = spawn(client, "writer", may_talk_to=[a]).json()["session_id"]
         client.post(f"/sessions/{b}/end")
@@ -399,15 +399,15 @@ class TestEndSession:
         assert res.status_code == 409
 
     def test_disabled_spawning_still_marks_ended_without_stopping(
-        self, agents_dir, templates_dir, sessions_db, messages_log
+        self, workers_dir, templates_dir, sessions_db, messages_log
     ):
         # Seed a live row with a host-side app, then end it from a
         # Docker-like app that has no claude CLI to stop the process.
-        host = TestClient(make_app(agents_dir, templates_dir, sessions_db, messages_log))
-        create_agent(host, "researcher")
+        host = TestClient(make_app(workers_dir, templates_dir, sessions_db, messages_log))
+        create_worker(host, "researcher")
         sid = spawn(host, "researcher").json()["session_id"]
         docker = TestClient(
-            make_app(agents_dir, templates_dir, sessions_db, messages_log, spawn_enabled=False)
+            make_app(workers_dir, templates_dir, sessions_db, messages_log, spawn_enabled=False)
         )
 
         res = docker.post(f"/sessions/{sid}/end")
@@ -416,20 +416,44 @@ class TestEndSession:
         assert STOPPED == []
 
 
+class TestSchemaMigration:
+    def test_old_agent_column_is_renamed_to_worker(self, tmp_path):
+        import sqlite3
+
+        db = tmp_path / "old.db"
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "CREATE TABLE sessions (session_id TEXT PRIMARY KEY, agent TEXT NOT NULL, "
+            "status TEXT NOT NULL, spawned_by TEXT, started_at TEXT NOT NULL, "
+            "ended_at TEXT, may_talk_to TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO sessions VALUES ('abc12345', 'researcher', 'live', NULL, 't0', NULL, '[]')"
+        )
+        conn.commit()
+        conn.close()
+
+        sessions_store.init_db(db)
+
+        columns = [r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(sessions)")]
+        assert "worker" in columns and "agent" not in columns and "token_hash" in columns
+        assert sessions_store.get_session(db, "abc12345")["worker"] == "researcher"
+
+
 class TestStartupReconciliation:
     def test_live_rows_not_running_anymore_are_closed(
-        self, agents_dir, templates_dir, sessions_db, messages_log
+        self, workers_dir, templates_dir, sessions_db, messages_log
     ):
-        first = TestClient(make_app(agents_dir, templates_dir, sessions_db, messages_log))
-        create_agent(first, "researcher")
-        create_agent(first, "writer")
+        first = TestClient(make_app(workers_dir, templates_dir, sessions_db, messages_log))
+        create_worker(first, "researcher")
+        create_worker(first, "writer")
         keep = spawn(first, "researcher").json()["session_id"]
         gone = spawn(first, "writer").json()["session_id"]
 
         # New machine / restart: only `keep` is still running. Entering the
         # client runs the app's startup, which is where reconciliation lives.
         with TestClient(
-            make_app(agents_dir, templates_dir, sessions_db, messages_log, running_ids_fn=lambda: {keep})
+            make_app(workers_dir, templates_dir, sessions_db, messages_log, running_ids_fn=lambda: {keep})
         ):
             pass
 
@@ -438,31 +462,31 @@ class TestStartupReconciliation:
         assert sessions_store.get_session(sessions_db, gone)["ended_at"] is not None
 
     def test_skipped_when_running_set_is_unknown(
-        self, agents_dir, templates_dir, sessions_db, messages_log
+        self, workers_dir, templates_dir, sessions_db, messages_log
     ):
         # No claude CLI / command failed -> None. Must NOT be treated as
         # "nothing is running", or every live session would be closed.
-        first = TestClient(make_app(agents_dir, templates_dir, sessions_db, messages_log))
-        create_agent(first, "researcher")
+        first = TestClient(make_app(workers_dir, templates_dir, sessions_db, messages_log))
+        create_worker(first, "researcher")
         sid = spawn(first, "researcher").json()["session_id"]
 
         with TestClient(
-            make_app(agents_dir, templates_dir, sessions_db, messages_log, running_ids_fn=lambda: None)
+            make_app(workers_dir, templates_dir, sessions_db, messages_log, running_ids_fn=lambda: None)
         ):
             pass
 
         assert sessions_store.get_session(sessions_db, sid)["status"] == "live"
 
     def test_skipped_when_spawning_is_disabled(
-        self, agents_dir, templates_dir, sessions_db, messages_log
+        self, workers_dir, templates_dir, sessions_db, messages_log
     ):
-        first = TestClient(make_app(agents_dir, templates_dir, sessions_db, messages_log))
-        create_agent(first, "researcher")
+        first = TestClient(make_app(workers_dir, templates_dir, sessions_db, messages_log))
+        create_worker(first, "researcher")
         sid = spawn(first, "researcher").json()["session_id"]
 
         with TestClient(
             make_app(
-                agents_dir, templates_dir, sessions_db, messages_log,
+                workers_dir, templates_dir, sessions_db, messages_log,
                 spawn_enabled=False, running_ids_fn=lambda: set(),
             )
         ):

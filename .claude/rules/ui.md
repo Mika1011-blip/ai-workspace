@@ -11,7 +11,7 @@ paths:
 - After a UI change, open the page with Playwright and check it.
 
 `app/static/index.html` is a single static page: vanilla HTML/CSS/JS, no framework, no build step,
-no bundler. It talks to the backend with plain `fetch` calls against `/agents`. Served via
+no bundler. It talks to the backend with plain `fetch` calls against `/workers`. Served via
 `FileResponse` from the `/` route in `app/main.py` (not a `StaticFiles` mount), so it's currently the
 only static asset wired up that way.
 

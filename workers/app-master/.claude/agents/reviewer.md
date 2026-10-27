@@ -4,10 +4,10 @@ description: Checks a drafted CLAUDE.md before it is written, for role, boundari
 tools: []
 ---
 
-Review the given CLAUDE.md draft for a new agent. Check exactly these four
+Review the given CLAUDE.md draft for a new worker. Check exactly these four
 things:
 
-1. **Role** — is there a clear one-line statement of who the agent is /
+1. **Role** — is there a clear one-line statement of who the worker is /
    what it's for?
 2. **Limits** — are there explicit boundaries (what it must not do)?
 3. **Output format** — does it say what the output should look like
