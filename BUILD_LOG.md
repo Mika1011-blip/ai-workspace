@@ -89,3 +89,4 @@
 - 2026-10-27 20:06:58 — commit 3915c28 Identify sessions by token, not by a pre-chosen id
 - 2026-10-27 20:07:35 — changed: workers/wall-tester/.claude/settings.json, workers/wall-tester/CLAUDE.md
 - 2026-10-27 20:13:27 — commit 2d0bf4f Switch off the background worktree guard for app sessions
+- 2026-10-27 20:16:53 — commit 68289ff Delete of a held worker is 409, and no ghost folders after deletion
