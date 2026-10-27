@@ -10,6 +10,7 @@ import httpx
 from fastmcp import FastMCP
 
 API_BASE_URL = os.environ.get("WORKSPACE_API_URL", "http://localhost:8000")
+SESSION_ID = os.environ.get("SESSION_ID", "")
 
 mcp = FastMCP("ai-workspace")
 
@@ -136,6 +137,53 @@ def delete_agent(name: str) -> dict:
     response = httpx.delete(f"{API_BASE_URL}/agents/{name}")
     response.raise_for_status()
     return {"deleted": name}
+
+
+@mcp.tool
+def spawn_session(agent: str, task: str) -> dict:
+    """Spawn a new background session for an existing agent.
+
+    `agent` must match `^[a-z0-9-]{1,40}$` and must already exist. Calls
+    POST /sessions with `{"agent": agent, "task": task, "spawned_by":
+    SESSION_ID}` and returns the new session's id, agent, and status.
+    Raises an error if the agent does not exist or the name is invalid.
+    """
+    response = httpx.post(
+        f"{API_BASE_URL}/sessions",
+        json={"agent": agent, "task": task, "spawned_by": SESSION_ID},
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def list_sessions() -> list[dict]:
+    """List every session this one may reach.
+
+    Calls GET /sessions?caller=<this session's id> and returns itself plus
+    every session in its own `may_talk_to` list. Raises an error if this
+    session isn't registered.
+    """
+    response = httpx.get(f"{API_BASE_URL}/sessions", params={"caller": SESSION_ID})
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def send_to_session(session_id: str, text: str) -> dict:
+    """Send a message to another session.
+
+    Calls POST /sessions/{session_id}/messages with `{"from":
+    SESSION_ID, "text": text}`. Raises an error if either session is
+    unknown or ended, or if this session isn't allowed to message the
+    target.
+    """
+    response = httpx.post(
+        f"{API_BASE_URL}/sessions/{session_id}/messages",
+        json={"from": SESSION_ID, "text": text},
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 if __name__ == "__main__":
