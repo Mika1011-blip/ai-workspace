@@ -17,6 +17,9 @@ Usage: `/end-worker <id>`
    still `running`, set it from what the worker actually delivered
    (`success` if its work was validated and merged, else `failed` with a
    one-line `error`) and put a one-line `result.summary`.
-4. Report back which role/id was ended and the run's final status.
+4. Append `{"at": "<now Z>", "event": "ended", "session_id": "<id>",
+   "run_id": "<run_id>", "status": "<final status>"}` to
+   `.claude/crew/runs/<role>/activity.jsonl`.
+5. Report back which role/id was ended and the run's final status.
 
 Lead-only — never delegate this to a worker.

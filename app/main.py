@@ -17,7 +17,7 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app import run_records, sessions_store
+from app import activity, run_records, sessions_store
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -280,15 +280,16 @@ def create_app(
     # where the claude CLI exists -- i.e. not inside Docker -- and only when
     # the running set is actually known. Runs at startup, not import: the
     # CLI call takes seconds and importing a module must not shell out.
-    def finalize_run(session_id: str, ended_at: datetime, status: str, error: str) -> None:
+    def finalize_run(session_id: str, ended_at: datetime, status: str, error: str) -> dict | None:
         """Close the run record behind a session. `status`/`error` apply only
         if the worker never reported -- its own verdict is never overwritten."""
         path = run_records.path_for_session(sessions_db_path, session_id)
         if path is None or not path.is_file():
-            return
+            return None
         record = run_records.finish(run_records.read_record(path), ended_at, status, error)
         run_records.write_record(workers_path, record)
         run_records.upsert(sessions_db_path, record, path)
+        return record
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -297,7 +298,20 @@ def create_app(
             if ids is not None:
                 now = datetime.now(timezone.utc)
                 for sid in sessions_store.reconcile(sessions_db_path, ids, now.isoformat()):
-                    finalize_run(sid, now, "failed", "process gone before reporting a result")
+                    record = finalize_run(sid, now, "failed", "process gone before reporting a result")
+                    entry = sessions_store.get_session(sessions_db_path, sid)
+                    if entry is not None:
+                        activity.log(
+                            workers_path,
+                            entry["worker"],
+                            "reconciled",
+                            {
+                                "session_id": sid,
+                                "run_id": record["run_id"] if record else None,
+                                "status": record["status"] if record else None,
+                                "reason": "process gone",
+                            },
+                        )
         yield
 
     def log_message(from_id: str, to_id: str, outcome: str) -> None:
@@ -460,6 +474,18 @@ def create_app(
         )
         path = run_records.write_record(workers_path, record)
         run_records.upsert(sessions_db_path, record, path)
+        activity.log(
+            workers_path,
+            body.worker,
+            "spawned",
+            {
+                "session_id": session_id,
+                "run_id": record["run_id"],
+                "trigger": body.trigger,
+                "spawned_by": body.spawned_by,
+                "task": body.task,
+            },
+        )
         return Session(
             session_id=session_id,
             worker=body.worker,
@@ -500,7 +526,20 @@ def create_app(
                 record["metrics"][key] = body.metrics[key]
         run_records.write_record(workers_path, record)
         run_records.upsert(sessions_db_path, record, path)
+        activity.log(
+            workers_path,
+            entry["worker"],
+            "result_reported",
+            {"session_id": session_id, "run_id": record["run_id"], "status": body.status},
+        )
         return record
+
+    @app.get("/workers/{name}/activity")
+    def worker_activity(name: str, limit: int = 100) -> list[dict]:
+        validate_name(name)
+        if not (workers_path / name / "CLAUDE.md").is_file():
+            raise HTTPException(status_code=404, detail=f"Worker '{name}' not found")
+        return activity.tail(workers_path, name, max(1, min(limit, 1000)))
 
     @app.get("/runs")
     def list_runs(
@@ -530,19 +569,26 @@ def create_app(
         target = sessions_store.get_session(sessions_db_path, session_id)
         if sender is None or target is None:
             raise HTTPException(status_code=404, detail="unknown_session")
+
+        def outcome(name: str) -> None:
+            # Global audit log plus both workers' own timelines, refusals included.
+            log_message(body.from_, session_id, name)
+            activity.log(workers_path, sender["worker"], "message_out", {"to": session_id, "outcome": name})
+            activity.log(workers_path, target["worker"], "message_in", {"from": body.from_, "outcome": name})
+
         # `from` is self-declared; the token proves the caller really is it.
         if not token_matches(sender, x_session_token):
-            log_message(body.from_, session_id, "bad_token")
+            outcome("bad_token")
             raise HTTPException(status_code=401, detail="bad_token")
         if sender["status"] != "live" or target["status"] != "live":
-            log_message(body.from_, session_id, "session_ended")
+            outcome("session_ended")
             raise HTTPException(status_code=409, detail="session_ended")
         if body.from_ not in target["may_talk_to"]:
-            log_message(body.from_, session_id, "not_allowed")
+            outcome("not_allowed")
             raise HTTPException(status_code=403, detail="not_allowed")
         # Accepted and logged only: forwarding into the target session is
         # not implemented yet, so this must not claim delivery.
-        log_message(body.from_, session_id, "accepted")
+        outcome("accepted")
         return {"accepted": True}
 
     @app.post("/sessions/{session_id}/end")
@@ -557,7 +603,17 @@ def create_app(
         now = datetime.now(timezone.utc)
         ended_at = now.isoformat()
         sessions_store.mark_ended(sessions_db_path, session_id, ended_at)
-        finalize_run(session_id, now, "failed", "ended before reporting a result")
+        record = finalize_run(session_id, now, "failed", "ended before reporting a result")
+        activity.log(
+            workers_path,
+            entry["worker"],
+            "ended",
+            {
+                "session_id": session_id,
+                "run_id": record["run_id"] if record else None,
+                "status": record["status"] if record else None,
+            },
+        )
         return Session(**{**entry, "status": "ended", "ended_at": ended_at})
 
     return app

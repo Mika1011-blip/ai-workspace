@@ -81,3 +81,4 @@
 - 2026-10-27 18:35:27 — commit 8006d96 Create agents in one call; refresh the editor from the saved response
 - 2026-10-27 19:01:31 — commit af59662 Rename agents to workers everywhere
 - 2026-10-27 19:07:43 — commit 88da592 Run records: one JSON per worker run, written by the API, indexed in SQLite
+- 2026-10-27 19:10:27 — commit b1a2025 Per-worker activity log: a timeline next to the run records
