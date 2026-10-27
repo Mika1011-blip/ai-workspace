@@ -38,6 +38,7 @@ There is no lint/format command configured in this repo.
 - Agent names: lowercase letters, digits, dashes. Validate on every endpoint that takes a name.
 - Never read or write outside `agents/` from agent endpoints.
 - One feature per branch; open PRs with `/ship`.
+- Before messaging another session, follow @.claude/crew/COMMS.md.
 
 ## Layout
 

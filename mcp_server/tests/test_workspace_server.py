@@ -185,3 +185,32 @@ def test_write_skill_handles_empty_response_body(monkeypatch):
     result = ws.write_skill("time-teller", "tz-lookup", "# tz-lookup\n")
 
     assert result == {"status_code": 201}
+
+
+def test_delete_agent_calls_delete_endpoint(monkeypatch):
+    calls = []
+
+    def fake_delete(url):
+        calls.append(url)
+        return FakeResponse(204, content=b"")
+
+    monkeypatch.setattr(ws.httpx, "delete", fake_delete)
+
+    result = ws.delete_agent("time-teller")
+
+    assert calls == [f"{ws.API_BASE_URL}/agents/time-teller"]
+    assert result == {"deleted": "time-teller"}
+
+
+def test_delete_agent_raises_on_missing_agent(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "delete", lambda url: FakeResponse(404))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.delete_agent("does-not-exist")
+
+
+def test_delete_agent_raises_on_invalid_name(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "delete", lambda url: FakeResponse(400))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.delete_agent("Bad Name")

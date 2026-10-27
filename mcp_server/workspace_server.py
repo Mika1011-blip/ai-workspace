@@ -124,5 +124,19 @@ def write_skill(name: str, skill_name: str, content: str) -> dict:
     return response.json()
 
 
+@mcp.tool
+def delete_agent(name: str) -> dict:
+    """Delete an agent and everything in its folder.
+
+    `name` must match `^[a-z0-9-]{1,40}$` and must already exist. Calls
+    DELETE /agents/{name}, which removes the agent's CLAUDE.md and any
+    skills written under it. Irreversible — there is no undo. Raises an
+    error if the agent does not exist or the name is invalid.
+    """
+    response = httpx.delete(f"{API_BASE_URL}/agents/{name}")
+    response.raise_for_status()
+    return {"deleted": name}
+
+
 if __name__ == "__main__":
     mcp.run()

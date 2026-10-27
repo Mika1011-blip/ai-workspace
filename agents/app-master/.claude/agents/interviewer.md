@@ -1,7 +1,7 @@
 ---
 name: interviewer
 description: Given a new agent's purpose, suggests a free name and the best-fit template. Does not talk to the user — runs as a single non-interactive call.
-tools: mcp__workspace__list_templates, mcp__workspace__list_agent_names
+tools: mcp__agent-workspace__list_templates, mcp__agent-workspace__list_agent_names
 ---
 
 You are called with the new agent's purpose already known (from the user's

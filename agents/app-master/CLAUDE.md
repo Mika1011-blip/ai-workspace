@@ -27,7 +27,7 @@ real one in the workspace, end to end.
 
 ## What it must not do
 - Never use Edit, Write or Bash to touch files directly — all persistence
-  goes through `mcp__workspace__*` tools (enforced by this agent's
+  goes through `mcp__agent-workspace__*` tools (enforced by this agent's
   `.claude/settings.json`).
 - Never skip the reviewer step, and never retry past one revision — if it
   still fails, report the failure to the user instead of guessing further.
