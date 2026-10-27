@@ -239,5 +239,95 @@ def end_session(session_id: str) -> dict:
     return response.json()
 
 
+# --- studio projects (docs/animation-studio.md §7) ----------------------------
+
+
+@mcp.tool
+def create_project(slug: str, title: str, format: str, renderer: str = "ffmpeg", mode: str = "guided") -> dict:
+    """Create a studio project: projects/<slug>/ with its manifest.
+
+    `slug` and `format` match `^[a-z0-9-]{1,40}$`; `renderer` is one of
+    ffmpeg, remotion, manim; `mode` is guided (stops at every review for a
+    decision) or auto. Calls POST /projects and returns the manifest.
+    Raises an error on a bad value or if the slug already exists.
+    """
+    response = httpx.post(
+        f"{API_BASE_URL}/projects",
+        json={"slug": slug, "title": title, "format": format, "renderer": renderer, "mode": mode},
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def list_projects() -> list[dict]:
+    """Every project with its title, format, renderer, mode, status and
+    current stage. Calls GET /projects."""
+    response = httpx.get(f"{API_BASE_URL}/projects")
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def get_project(slug: str) -> dict:
+    """One project in full: manifest (status, stage, stage history with each
+    worker's summary), every artifact with its description, and the
+    decision trail. At a checkpoint, the last stage's summary is the
+    reviewer's verdict. Calls GET /projects/{slug}."""
+    response = httpx.get(f"{API_BASE_URL}/projects/{slug}")
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def start_pipeline(slug: str) -> dict:
+    """Run the project's pipeline from the first stage. Calls POST
+    /projects/{slug}/start. Raises an error if a stage worker is missing
+    or the project is already running or waiting for a decision."""
+    response = httpx.post(f"{API_BASE_URL}/projects/{slug}/start")
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def decide(slug: str, decision: str, notes: str | None = None) -> dict:
+    """Close a guided-mode checkpoint: approve (next stage), revise (the
+    maker runs again with the reviewer's notes plus `notes`), or skip.
+
+    Calls POST /projects/{slug}/decision. The decision is recorded as made
+    by this session when it has a token, else as "producer". Raises an
+    error if the project isn't waiting for a decision.
+    """
+    response = httpx.post(
+        f"{API_BASE_URL}/projects/{slug}/decision",
+        json={"decision": decision, "notes": notes, "by": "producer"},
+        headers=_auth(),
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def export_project(slug: str, dest_dir: str) -> dict:
+    """Copy the whole project folder to <dest_dir>/<slug>/ on the host --
+    `dest_dir` must be an existing absolute directory outside projects/.
+    Never overwrites. Calls POST /projects/{slug}/export."""
+    response = httpx.post(f"{API_BASE_URL}/projects/{slug}/export", json={"dest_dir": dest_dir})
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def delete_project(slug: str, confirm: bool = False) -> dict:
+    """Delete a project everywhere: host folder, Docker (bind mount) and
+    gallery. Irreversible. Refuses unless `confirm` is true -- ask the user
+    first. Calls DELETE /projects/{slug}."""
+    if not confirm:
+        raise ValueError(f"refusing to delete '{slug}': call again with confirm=True after the user agreed")
+    response = httpx.delete(f"{API_BASE_URL}/projects/{slug}")
+    response.raise_for_status()
+    return {"deleted": slug}
+
+
 if __name__ == "__main__":
     mcp.run()
