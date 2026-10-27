@@ -87,3 +87,5 @@
 - 2026-10-27 19:53:47 — commit c68b76b Let app workers write inside their own folder, never in _shared
 - 2026-10-27 19:57:12 — commit 68868e6 Per-spawn grants: tools, read_from, write_to -- and fix the variadic argv
 - 2026-10-27 20:06:58 — commit 3915c28 Identify sessions by token, not by a pre-chosen id
+- 2026-10-27 20:07:35 — changed: workers/wall-tester/.claude/settings.json, workers/wall-tester/CLAUDE.md
+- 2026-10-27 20:13:27 — commit 2d0bf4f Switch off the background worktree guard for app sessions

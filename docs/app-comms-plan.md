@@ -111,7 +111,11 @@ every worker it creates)
     `--restricted` to the worker's own folder plus `_shared`, and two
     deny rules (`Edit(//…/_shared/**)`, `Write(//…/_shared/**)`) take
     `_shared` back out — a worker can build a whole project inside its
-    own folder but can never change the shared one.
+    own folder but can never change the shared one. The same `--settings`
+    sets `"worktree": {"bgIsolation": "none"}`: a background session
+    inside a git repo otherwise refuses every write until it calls
+    `EnterWorktree` (verified live), and the worker's folder — not a
+    worktree — is our confinement. Lead and crew sessions keep the guard.
   - `dontAsk`: anything not allow-listed is refused, since a background
     session has nobody to answer a prompt. `--restricted` also refuses
     `bypassPermissions`, so an app session can never run in the lead's
