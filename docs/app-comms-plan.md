@@ -45,9 +45,11 @@ GET /sessions[?caller={session_id}]
 POST /sessions/{id}/messages
   body: { "text": str, "from"?: str }      # the token says who sends; `from`, if given, must agree
   header: X-Session-Token: <sender's token>
-  -> 202 { "accepted": true }. Checked and logged only -- forwarding the
-     text into `{id}`'s running session is NOT implemented yet, so the
-     response must not say "delivered".
+  -> 202 { "accepted": true, "delivered": bool }. Checked, logged, and --
+     on the SDK runner -- handed to `{id}`'s running session as its next
+     turn, prefixed "Message from session <id> (<worker>):". delivered is
+     false on the CLI runner (logged only). No token and no `from` = the
+     host, which may message any live session.
   -> 404 "unknown_session" if `id` or `from` doesn't exist in the table.
   -> 401 "bad_token" if the token isn't `from`'s -- `from` is otherwise
      just a claim any client could make.

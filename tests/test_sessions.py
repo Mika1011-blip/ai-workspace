@@ -401,7 +401,8 @@ class TestSendMessage:
         res = client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"}, headers=auth(a))
 
         assert res.status_code == 202
-        assert res.json() == {"accepted": True}
+        # A --bg session cannot take a message mid-run: accepted and logged, not delivered.
+        assert res.json() == {"accepted": True, "delivered": False}
 
     def test_impersonating_a_sender_is_401_and_logged(self, client, messages_log):
         # `from` says "a", but the token is b's (or nobody's): the whole point

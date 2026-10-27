@@ -174,3 +174,86 @@ class TestWorkersState:
 
         assert c.get("/workers/state").json() == []
         assert c.get("/workers/nope").status_code == 404
+
+
+class TestMessageForwarding:
+    def _two(self, c, runner):
+        create_worker(c, "a")
+        create_worker(c, "b")
+        a = c.post("/sessions", json={"worker": "a", "task": "x"}).json()["session_id"]
+        tok_a = runner.started[-1].token
+        b = c.post("/sessions", json={"worker": "b", "task": "y", "may_talk_to": [a]}).json()["session_id"]
+        return a, tok_a, b
+
+    def test_a_session_message_is_handed_to_the_target_with_its_sender(
+        self, workers_dir, templates_dir, sessions_db, messages_log
+    ):
+        runner = FakeSdkRunner()
+        c = make(workers_dir, templates_dir, sessions_db, messages_log, runner)
+        a, tok_a, b = self._two(c, runner)
+
+        res = c.post(f"/sessions/{b}/messages", json={"text": "storyboard is ready"}, headers={"X-Session-Token": tok_a})
+
+        assert res.status_code == 202 and res.json() == {"accepted": True, "delivered": True}
+        assert runner.sent == [(b, f"Message from session {a} (a): storyboard is ready")]
+        log = (workers_dir / "b" / "activity.jsonl").read_text(encoding="utf-8")
+        assert '"event": "message_in"' in log and '"outcome": "delivered"' in log
+
+    def test_the_host_may_message_any_session_without_a_token(
+        self, workers_dir, templates_dir, sessions_db, messages_log
+    ):
+        runner = FakeSdkRunner()
+        c = make(workers_dir, templates_dir, sessions_db, messages_log, runner)
+        _, _, b = self._two(c, runner)
+
+        res = c.post(f"/sessions/{b}/messages", json={"text": "make it shorter"})
+
+        assert res.status_code == 202 and res.json()["delivered"] is True
+        assert runner.sent[-1] == (b, "Message from the host: make it shorter")
+        assert '"from": "host"' in messages_log.read_text(encoding="utf-8")
+
+    def test_a_session_still_needs_permission_and_a_valid_token(
+        self, workers_dir, templates_dir, sessions_db, messages_log
+    ):
+        runner = FakeSdkRunner()
+        c = make(workers_dir, templates_dir, sessions_db, messages_log, runner)
+        a, tok_a, b = self._two(c, runner)
+        tok_b = runner.started[-1].token
+
+        # b may not talk to a (a never listed b), a bad token is refused, an unknown target is 404.
+        assert c.post(f"/sessions/{a}/messages", json={"text": "hi"}, headers={"X-Session-Token": tok_b}).status_code == 403
+        assert c.post(f"/sessions/{b}/messages", json={"text": "hi"}, headers={"X-Session-Token": "nope"}).status_code == 401
+        assert c.post("/sessions/ghost/messages", json={"text": "hi"}).status_code == 404
+        assert runner.sent == []
+
+    def test_messages_to_an_ended_session_are_409(self, workers_dir, templates_dir, sessions_db, messages_log):
+        runner = FakeSdkRunner()
+        c = make(workers_dir, templates_dir, sessions_db, messages_log, runner)
+        _, _, b = self._two(c, runner)
+        c.post(f"/sessions/{b}/end")
+
+        assert c.post(f"/sessions/{b}/messages", json={"text": "hi"}).status_code == 409
+        assert runner.sent == []
+
+
+class TestEndSessionAuthorisation:
+    def test_host_self_and_spawner_may_end_but_nobody_else(self, workers_dir, templates_dir, sessions_db, messages_log):
+        runner = FakeSdkRunner()
+        c = make(workers_dir, templates_dir, sessions_db, messages_log, runner)
+        create_worker(c, "master")
+        create_worker(c, "child")
+        create_worker(c, "bystander")
+        master = c.post("/sessions", json={"worker": "master", "task": "run"}).json()["session_id"]
+        tok_master = runner.started[-1].token
+        child = c.post("/sessions", json={"worker": "child", "task": "do"}, headers={"X-Session-Token": tok_master}).json()["session_id"]
+        tok_child = runner.started[-1].token
+        c.post("/sessions", json={"worker": "bystander", "task": "watch"})
+        tok_by = runner.started[-1].token
+
+        assert c.post(f"/sessions/{child}/end", headers={"X-Session-Token": tok_by}).status_code == 403
+        assert c.post(f"/sessions/{child}/end", headers={"X-Session-Token": "nope"}).status_code == 401
+        assert c.post(f"/sessions/{master}/end", headers={"X-Session-Token": tok_child}).status_code == 403
+        assert c.post(f"/sessions/{child}/end", headers={"X-Session-Token": tok_master}).status_code == 200  # spawner
+        assert runner.stopped == [child]
+        assert c.post(f"/sessions/{master}/end", headers={"X-Session-Token": tok_master}).status_code == 200  # itself
+        assert c.post(f"/sessions/{master}/end").status_code == 409  # the host, but it is already over
