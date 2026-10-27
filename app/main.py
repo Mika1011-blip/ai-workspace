@@ -37,6 +37,7 @@ def validate_name(name: str) -> None:
 
 class AgentCreate(BaseModel):
     name: str
+    instructions: str | None = None
 
 
 class AgentUpdate(BaseModel):
@@ -313,12 +314,18 @@ def create_app(
     @app.post("/agents", status_code=201)
     def create_agent(body: AgentCreate) -> Agent:
         validate_name(body.name)
+        # Optional initial content makes creation one call, so a client never
+        # has to follow up with a PUT that could fail and leave a stub behind.
+        instructions = body.instructions if body.instructions is not None else starter_instructions(body.name)
+        try:
+            instructions.encode("utf-8")
+        except UnicodeEncodeError:
+            raise HTTPException(status_code=400, detail="instructions must be valid UTF-8 text")
         folder = agents_path / body.name
         try:
             folder.mkdir()
         except FileExistsError:
             raise HTTPException(status_code=409, detail=f"Agent '{body.name}' already exists")
-        instructions = starter_instructions(body.name)
         (folder / "CLAUDE.md").write_text(instructions, encoding="utf-8")
         return Agent(name=body.name, instructions=instructions)
 

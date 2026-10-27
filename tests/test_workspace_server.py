@@ -56,6 +56,32 @@ def test_list_agent_names_propagates_errors(monkeypatch):
         ws.list_agent_names()
 
 
+def test_create_agent_is_a_single_post(monkeypatch):
+    calls = []
+
+    def fake_post(url, json):
+        calls.append((url, json))
+        return FakeResponse(201, {"name": "researcher", "instructions": json["instructions"]})
+
+    def no_put(*args, **kwargs):
+        raise AssertionError("create_agent must not follow up with a PUT")
+
+    monkeypatch.setattr(ws.httpx, "post", fake_post)
+    monkeypatch.setattr(ws.httpx, "put", no_put)
+
+    result = ws.create_agent("researcher", "# researcher\n")
+
+    assert calls == [(f"{ws.API_BASE_URL}/agents", {"name": "researcher", "instructions": "# researcher\n"})]
+    assert result == {"name": "researcher", "instructions": "# researcher\n"}
+
+
+def test_create_agent_raises_on_duplicate_name(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "post", lambda url, json: FakeResponse(409))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.create_agent("researcher", "# researcher\n")
+
+
 def test_list_templates_returns_api_payload(monkeypatch):
     calls = []
 

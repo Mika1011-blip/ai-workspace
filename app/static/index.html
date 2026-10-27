@@ -150,15 +150,18 @@
 
       saveButton.addEventListener("click", async () => {
         saveError.textContent = "";
-        const res = await fetch(`/agents/${agent.name}`, {
+        const res = await fetch(`/agents/${encodeURIComponent(agent.name)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ instructions: textarea.value }),
         });
         if (res.status === 200) {
           const updated = await res.json();
+          // What the server stored is the single source of truth for both
+          // the display and the next edit.
           agent.instructions = updated.instructions;
           pre.textContent = updated.instructions;
+          textarea.value = updated.instructions;
           pre.hidden = false;
           editButton.hidden = false;
           textarea.hidden = true;
@@ -287,10 +290,12 @@
       const name = nameInput.value.trim();
       const instructions = buildInstructions();
 
+      // One call: name and content together, so there is no half-created
+      // agent if anything fails.
       const createRes = await fetch("/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, instructions }),
       });
 
       if (createRes.status === 409) {
@@ -303,16 +308,6 @@
       }
       if (createRes.status !== 201) {
         newAgentError.textContent = `Something went wrong (HTTP ${createRes.status}).`;
-        return;
-      }
-
-      const updateRes = await fetch(`/agents/${encodeURIComponent(name)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instructions }),
-      });
-      if (!updateRes.ok) {
-        newAgentError.textContent = `Agent created, but writing its CLAUDE.md failed (HTTP ${updateRes.status}).`;
         return;
       }
 

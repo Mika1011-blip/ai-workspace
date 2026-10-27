@@ -59,19 +59,16 @@ def create_agent(name: str, instructions: str) -> dict:
     characters) to match the workspace's agent-name rules. `instructions`
     becomes the full contents of the new agent's CLAUDE.md.
 
-    Calls POST /agents to create the agent, then PUT /agents/{name} to set
-    its instructions, and returns the created agent's name and final
-    instructions. Raises an error if an agent with that name already
-    exists, or if the name is invalid.
+    Calls POST /agents once with both fields and returns the created
+    agent's name and instructions. One call, so a failure can't leave a
+    half-made agent behind. Raises an error if an agent with that name
+    already exists, or if the name or instructions are invalid.
     """
-    create_response = httpx.post(f"{API_BASE_URL}/agents", json={"name": name})
-    create_response.raise_for_status()
-
-    update_response = httpx.put(
-        f"{API_BASE_URL}/agents/{name}", json={"instructions": instructions}
+    response = httpx.post(
+        f"{API_BASE_URL}/agents", json={"name": name, "instructions": instructions}
     )
-    update_response.raise_for_status()
-    return update_response.json()
+    response.raise_for_status()
+    return response.json()
 
 
 @mcp.tool
