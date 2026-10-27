@@ -60,3 +60,16 @@
 - 2026-10-27 17:34:19 — commit 6ccc14f Build app-side comms protocol: session registry, endpoints, MCP tools
 - 2026-10-27 17:34:23 — commit efde1eb Update build log
 - 2026-10-27 17:35:53 — commit 4170668 Move agents/COMMS.md into agents/_shared/
+- 2026-10-27 17:35:53 — commit ad7b070 Update build log
+- 2026-10-27 18:00:38 — changed: .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:00:38 — changed: .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:01:48 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:01:54 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:01:59 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:02:00 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:02:04 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:02:20 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:03:21 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:03:26 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:06:49 — commit 0a66ceb Reorganize: scorecard into docs/history, one tests/ root, drop stale paths
+- 2026-10-27 18:06:50 — commit f2983cc Spawn crew workers in the lead's permission mode; add ping-tester role
