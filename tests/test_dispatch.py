@@ -141,6 +141,49 @@ class TestGetRun:
         assert res.json()["status"] == "running"
 
 
+class TestRenderProject:
+    def test_renders_and_publishes_from_the_render_folder(self, client, projects_dir):
+        make_project(client)
+        (projects_dir / "first-reel" / "artifacts" / "07-render").mkdir()
+
+        res = client.post("/projects/first-reel/render")
+
+        assert res.status_code == 200, res.json()
+        m = res.json()
+        assert m["status"] == "published" and m["stage"] is None
+        assert [(h["worker"], h["task"], h["status"]) for h in m["handoffs"]] == [
+            ("api", "render", "success"), ("api", "publish", "success"),
+        ]
+        folder = projects_dir / "first-reel"
+        assert (folder / "final.mp4").is_file() and (folder / "preview.jpg").is_file()
+        assert client.get("/projects").json()[0]["has_final"] is True
+
+    def test_nothing_to_render_is_409(self, client):
+        make_project(client)
+
+        res = client.post("/projects/first-reel/render")
+
+        assert res.status_code == 409
+        assert res.json()["detail"].startswith("nothing_to_render")
+
+    def test_render_failure_fails_the_project(self, workers_dir, templates_dir, sessions_db, messages_log, projects_dir):
+        from tests.test_sessions import make_app
+
+        def broken(argv):
+            return (1, "ffmpeg: plan has no shots") if argv[-1] == "render" else (0, "")
+
+        c = TestClient(make_app(workers_dir, templates_dir, sessions_db, messages_log, projects_dir=projects_dir, render_run=broken))
+        make_project(c)
+        (projects_dir / "first-reel" / "artifacts" / "07-render").mkdir()
+
+        res = c.post("/projects/first-reel/render")
+
+        assert res.status_code == 502
+        m = manifest(projects_dir)
+        assert m["status"] == "failed" and "plan has no shots" in m["error"]
+        assert m["handoffs"][-1]["task"] == "render" and m["handoffs"][-1]["status"] == "failed"
+
+
 class TestProtectedMaster:
     def test_app_master_cannot_be_deleted(self, client, workers_dir):
         create_worker(client, "app-master")

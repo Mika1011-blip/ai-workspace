@@ -392,6 +392,21 @@ def test_assign_task_posts_to_the_project_with_token(monkeypatch):
     assert result["run_id"] == "scriptwriter-x"
 
 
+def test_render_project_posts_with_a_long_timeout(monkeypatch):
+    calls = []
+
+    def fake_post(url, headers, timeout):
+        calls.append((url, headers, timeout))
+        return FakeResponse(200, {"slug": "first-reel", "status": "published"})
+
+    monkeypatch.setattr(ws.httpx, "post", fake_post)
+
+    result = ws.render_project("first-reel")
+
+    assert calls == [(f"{ws.API_BASE_URL}/projects/first-reel/render", {"X-Session-Token": ""}, 900)]
+    assert result["status"] == "published"
+
+
 def test_wait_for_run_long_polls(monkeypatch):
     calls = []
 
