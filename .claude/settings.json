@@ -1,14 +1,23 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|Bash",
+        "hooks": [
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-env.py\"" }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/log-step.sh\""
-          }
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/log-step.sh\"" }
         ]
       }
     ]
+  },
+  "permissions": {
+    "allow": ["Bash(pytest:*)", "Bash(docker compose:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(gh pr:*)"],
+    "deny": ["Read(./.env)", "Read(./.env.*)", "Edit(./.claude/settings.json)"]
   }
 }
