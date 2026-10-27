@@ -12,315 +12,465 @@
       --line: #ddd;
       --panel: #f6f6f6;
       --danger: #b00020;
+      --ok: #1b6e3a;
     }
     * { box-sizing: border-box; }
     body {
       font-family: system-ui, sans-serif;
       color: var(--ink);
       background: var(--ground);
-      max-width: 720px;
-      margin: 2rem auto;
+      max-width: 1100px;
+      margin: 1.5rem auto;
       padding: 0 1rem;
       line-height: 1.5;
     }
-    h1 { margin: 0 0 1.5rem; font-size: 1.75rem; }
+    h1 { margin: 0 0 1rem; font-size: 1.75rem; display: flex; align-items: baseline; gap: 1rem; }
+    h1 nav { font-size: 0.95rem; font-weight: normal; }
+    h1 nav a { margin-right: 0.75rem; }
     h2 { margin: 0 0 0.25rem; font-size: 1.25rem; }
-    section { margin-bottom: 2.5rem; }
+    h3 { margin: 1rem 0 0.25rem; font-size: 1.05rem; }
     .section-intro { color: var(--muted); margin: 0.25rem 0 1rem; }
-    form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
     label { display: block; font-size: 0.9rem; margin-bottom: 0.25rem; }
     input, select, textarea { font: inherit; padding: 0.4rem; border: 1px solid var(--line); border-radius: 4px; }
-    input { flex: 1; }
     button { padding: 0.4rem 1rem; border: 1px solid var(--ink); border-radius: 4px; background: var(--ink); color: var(--ground); cursor: pointer; }
     button:hover { background: #333; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .error, #error, .save-error { color: var(--danger); min-height: 1.2em; margin: 0 0 1rem; }
-    ul { list-style: none; padding: 0; }
-    li { border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; }
+    button.secondary { background: var(--ground); color: var(--ink); }
+    button.danger { background: var(--ground); color: var(--danger); border-color: var(--danger); }
+    .error, #error, .save-error { color: var(--danger); min-height: 1.2em; margin: 0 0 0.5rem; }
+    .status { color: var(--muted); }
     pre { white-space: pre-wrap; background: var(--panel); padding: 0.5rem; margin: 0.5rem 0 0; }
-    textarea { width: 100%; min-height: 8rem; font-family: inherit; margin-top: 0.5rem; }
-    .edit-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
-    .edit-actions[hidden] { display: none; }
-
-    .new-worker-form { display: flex; flex-direction: column; gap: 1rem; max-width: 480px; }
+    textarea { width: 100%; min-height: 8rem; font-family: inherit; }
+    details.new-worker { border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 1.5rem; }
+    details.new-worker summary { cursor: pointer; font-weight: 600; }
+    .new-worker-form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 480px; margin-top: 0.75rem; }
     .field { display: flex; flex-direction: column; }
     .field select, .field input { width: 100%; }
-    #preview {
-      max-height: 16rem;
-      overflow: auto;
-      font-family: ui-monospace, Consolas, monospace;
-      font-size: 0.85rem;
-    }
+    #preview { max-height: 12rem; overflow: auto; font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; }
+
+    /* workers + panel */
+    .floor { display: grid; grid-template-columns: 280px 1fr; gap: 1.5rem; align-items: start; }
+    @media (max-width: 760px) { .floor { grid-template-columns: 1fr; } }
+    #quick-create-form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+    #quick-create-form input { flex: 1; min-width: 0; }
+    ul.workers { list-style: none; padding: 0; margin: 0; }
+    ul.workers li { border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; cursor: pointer; }
+    ul.workers li.selected { border-color: var(--ink); background: var(--panel); }
+    ul.workers li .name { font-weight: 600; }
+    .badge { display: inline-block; font-size: 0.8rem; padding: 0 0.4rem; border: 1px solid var(--line); border-radius: 999px; background: var(--ground); white-space: nowrap; }
+    .badge.error { color: var(--danger); border-color: var(--danger); }
+    .badge.live { border-color: var(--ink); }
+    .task { color: var(--muted); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .panel { border: 1px solid var(--line); border-radius: 6px; padding: 1rem; min-height: 20rem; }
+    .panel-head { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: baseline; }
+    .tabs { display: flex; gap: 0.25rem; margin: 0.75rem 0 1rem; border-bottom: 1px solid var(--line); }
+    .tabs button { background: none; color: var(--ink); border: 1px solid transparent; border-bottom: none; border-radius: 4px 4px 0 0; padding: 0.4rem 0.9rem; }
+    .tabs button[aria-selected="true"] { border-color: var(--line); background: var(--panel); font-weight: 600; }
+    .tab[hidden] { display: none; }
+    .gauge { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; }
+    meter { width: 90px; }
+    .transcript { border: 1px solid var(--line); border-radius: 4px; background: var(--panel); max-height: 22rem; overflow: auto; padding: 0.5rem; font-size: 0.9rem; }
+    .transcript .line { margin: 0 0 0.35rem; }
+    .transcript .line time { color: var(--muted); font-size: 0.8rem; margin-right: 0.4rem; }
+    .transcript .line.text { white-space: pre-wrap; }
+    .transcript .line.host { font-weight: 600; }
+    .composer { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; }
+    .composer textarea { min-height: 4.5rem; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .totals { display: flex; flex-wrap: wrap; gap: 1.5rem; margin: 0.5rem 0 1rem; }
+    .totals div strong { display: block; font-size: 1.3rem; }
+    .catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.25rem 1rem; }
+    .catalog label { display: flex; gap: 0.4rem; align-items: baseline; font-size: 0.9rem; }
+    .catalog label span { color: var(--muted); }
+    .skills li { display: flex; justify-content: space-between; align-items: center; cursor: default; }
   </style>
 </head>
 <body>
-  <h1>Workers</h1>
+  <h1>Workers <nav><a href="/gallery">Gallery</a></nav></h1>
 
-  <section aria-labelledby="new-worker-heading">
-    <h2 id="new-worker-heading">New worker</h2>
-    <p class="section-intro">Pick a starting template, name the worker and describe its role. The preview below is exactly what gets written to its CLAUDE.md.</p>
-
+  <details class="new-worker" id="new-worker">
+    <summary>New worker</summary>
+    <p class="section-intro">Pick a starting template, name the worker and describe its role. The preview is exactly what gets written to its CLAUDE.md.</p>
     <form id="new-worker-form" class="new-worker-form">
       <div class="field">
         <label for="template-select">Template</label>
-        <select id="template-select">
-          <option value="">Blank (no template)</option>
-        </select>
+        <select id="template-select"><option value="">Blank (no template)</option></select>
       </div>
-
       <div class="field">
         <label for="new-worker-name">Name</label>
         <input id="new-worker-name" placeholder="code-reviewer" autocomplete="off" required>
       </div>
-
       <div class="field">
         <label for="new-worker-role">Role</label>
         <input id="new-worker-role" placeholder="Reviews pull requests for bugs and style" autocomplete="off">
       </div>
-
       <div class="field">
         <label for="preview">Preview: CLAUDE.md</label>
         <pre id="preview">(fill in the fields above)</pre>
       </div>
-
       <p class="error" id="new-worker-error"></p>
       <button type="submit">Create worker</button>
     </form>
-  </section>
+  </details>
 
-  <section aria-labelledby="workers-heading">
-    <h2 id="workers-heading">Existing workers <span id="count">(0)</span></h2>
+  <div class="floor">
+    <section aria-labelledby="workers-heading">
+      <h2 id="workers-heading">Team <span id="count" class="status">(0)</span></h2>
+      <form id="quick-create-form">
+        <input id="name" placeholder="new-worker-name" autocomplete="off" required aria-label="New worker name">
+        <button type="submit">Create</button>
+      </form>
+      <p id="error"></p>
+      <p id="empty" hidden>No workers yet.</p>
+      <ul id="workers" class="workers"></ul>
+      <p class="status" id="feed-status">Live feed: connecting…</p>
+    </section>
 
-    <form id="quick-create-form">
-      <input id="name" placeholder="new-worker-name" autocomplete="off" required>
-      <button type="submit">Quick create</button>
-    </form>
-    <p id="error"></p>
-
-    <p id="empty" hidden>No workers yet.</p>
-    <ul id="workers"></ul>
-  </section>
+    <section class="panel" id="panel" aria-live="polite">
+      <p class="status">Pick a worker to chat with it, see its stats, or change its settings.</p>
+    </section>
+  </div>
 
   <script>
-    const list = document.getElementById("workers");
-    const empty = document.getElementById("empty");
-    const error = document.getElementById("error");
-    const count = document.getElementById("count");
-
-    function addWorker(worker) {
-      const li = document.createElement("li");
-      const details = document.createElement("details");
-      const summary = document.createElement("summary");
-      const pre = document.createElement("pre");
-      const editButton = document.createElement("button");
-      const textarea = document.createElement("textarea");
-      const actions = document.createElement("div");
-      const saveButton = document.createElement("button");
-      const cancelButton = document.createElement("button");
-      const saveError = document.createElement("p");
-
-      summary.textContent = worker.name;
-      pre.textContent = worker.instructions;
-      editButton.textContent = "Edit";
-      textarea.hidden = true;
-      textarea.value = worker.instructions;
-      saveButton.textContent = "Save";
-      cancelButton.textContent = "Cancel";
-      actions.className = "edit-actions";
-      actions.hidden = true;
-      actions.append(saveButton, cancelButton);
-      saveError.className = "save-error";
-
-      editButton.addEventListener("click", () => {
-        pre.hidden = true;
-        editButton.hidden = true;
-        textarea.hidden = false;
-        actions.hidden = false;
-        textarea.focus();
-      });
-
-      cancelButton.addEventListener("click", () => {
-        textarea.value = worker.instructions;
-        saveError.textContent = "";
-        pre.hidden = false;
-        editButton.hidden = false;
-        textarea.hidden = true;
-        actions.hidden = true;
-      });
-
-      saveButton.addEventListener("click", async () => {
-        saveError.textContent = "";
-        const res = await fetch(`/workers/${encodeURIComponent(worker.name)}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ instructions: textarea.value }),
-        });
-        if (res.status === 200) {
-          const updated = await res.json();
-          // What the server stored is the single source of truth for both
-          // the display and the next edit.
-          worker.instructions = updated.instructions;
-          pre.textContent = updated.instructions;
-          textarea.value = updated.instructions;
-          pre.hidden = false;
-          editButton.hidden = false;
-          textarea.hidden = true;
-          actions.hidden = true;
-        } else if (res.status === 404) {
-          saveError.textContent = "This worker no longer exists.";
-        } else {
-          saveError.textContent = `Something went wrong (HTTP ${res.status}).`;
-        }
-      });
-
-      details.append(summary, pre, editButton, textarea, actions, saveError);
-      li.append(details);
-      list.append(li);
-      empty.hidden = true;
+    // ----- helpers ---------------------------------------------------------
+    const $ = (id) => document.getElementById(id);
+    function el(tag, attrs = {}, ...children) {
+      const node = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs)) {
+        if (v === null || v === undefined) continue;
+        if (k === "class") node.className = v;
+        else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+        else node.setAttribute(k, v);
+      }
+      node.append(...children.filter((c) => c !== null && c !== undefined && c !== false));
+      return node;
     }
+    async function api(method, path, body) {
+      const res = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+      let data = null;
+      try { data = await res.json(); } catch (_) { /* no body */ }
+      if (!res.ok) throw Object.assign(new Error((data && data.detail) || `HTTP ${res.status}`), { status: res.status, data });
+      return data;
+    }
+    const STATUS = {
+      idle: { icon: "○", label: "idle" }, thinking: { icon: "💭", label: "thinking" }, using_tool: { icon: "🔧", label: "using tool" },
+      waiting: { icon: "⏸", label: "waiting" }, error: { icon: "✖", label: "error" }, stale: { icon: "?", label: "stale" },
+    };
+    function badge(status) {
+      const s = STATUS[status] || { icon: "•", label: status };
+      const cls = "badge" + (status === "error" ? " error" : "") + (["thinking", "using_tool", "waiting"].includes(status) ? " live" : "");
+      return el("span", { class: cls, role: "status" }, `${s.icon} ${s.label}`);
+    }
+    const money = (v) => (v === null || v === undefined ? "–" : `$${Number(v).toFixed(2)}`);
+    const when = (iso) => (iso ? new Date(iso).toLocaleString() : "–");
+    const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString() : "");
+    const sec = (ms) => (ms === null || ms === undefined ? "–" : `${Math.round(ms / 1000)} s`);
 
-    async function loadWorkers() {
-      const res = await fetch("/workers");
-      const workers = await res.json();
+    // ----- state -----------------------------------------------------------
+    let workers = [];                 // [{name, instructions}]
+    const state = new Map();          // worker -> entry of /workers/state
+    let selected = null;              // worker name
+    let tab = "chat";
+    const transcripts = new Map();    // worker -> [event]
+
+    // ----- team list -------------------------------------------------------
+    const list = $("workers");
+    function renderList() {
       list.replaceChildren();
-      workers.forEach(addWorker);
-      empty.hidden = workers.length > 0;
-      count.textContent = `(${workers.length})`;
+      for (const w of workers) {
+        const st = state.get(w.name) || { status: "idle" };
+        const li = el("li", { class: w.name === selected ? "selected" : "", onclick: () => select(w.name), tabindex: "0", role: "button", "aria-pressed": String(w.name === selected),
+                              onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(w.name); } } },
+          el("div", { class: "row" }, el("span", { class: "name" }, w.name), badge(staleOr(st))),
+          isLive(st) && st.current_task ? el("div", { class: "task", title: st.current_task }, shortTask(st.current_task)) : null,
+          isLive(st) && st.tool ? el("div", { class: "task" }, `🔧 ${st.tool}`) : null);
+        list.append(li);
+      }
+      $("empty").hidden = workers.length > 0;
+      $("count").textContent = `(${workers.length})`;
+    }
+    const isLive = (st) => ["thinking", "using_tool", "waiting"].includes(st.status);
+    // Dispatched tasks carry a long preamble about the project; the master's
+    // own words come after "Task from the master:".
+    function shortTask(task) {
+      const i = task.indexOf("Task from the master:");
+      return i >= 0 ? task.slice(i + "Task from the master:".length).split("\n")[0].trim() : task;
+    }
+    function staleOr(st) {
+      if (!st.updated_at || ["idle", "error"].includes(st.status)) return st.status || "idle";
+      return (Date.now() - new Date(st.updated_at).getTime()) > 60_000 ? "stale" : st.status;
+    }
+    async function loadWorkers() {
+      workers = await api("GET", "/workers");
+      await refreshState();
+      renderList();
+      if (selected && !workers.some((w) => w.name === selected)) { selected = null; renderPanel(); }
+    }
+    async function refreshState() {
+      try {
+        for (const e of await api("GET", "/workers/state")) state.set(e.id, e);
+      } catch (_) { /* keep the last known state */ }
     }
 
-    document.getElementById("quick-create-form").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const input = document.getElementById("name");
-      error.textContent = "";
-      const res = await fetch("/workers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: input.value.trim() }),
+    // ----- live feed -------------------------------------------------------
+    function connectFeed() {
+      const feed = new EventSource("/events?replay=200");
+      feed.addEventListener("state", (msg) => {
+        const e = JSON.parse(msg.data);
+        const prev = state.get(e.worker) || { id: e.worker };
+        state.set(e.worker, { ...prev, status: e.status, tool: e.tool, context_used: e.context_used, cost_usd: e.cost_usd, turns: e.turns, updated_at: e.at, session_id: e.session_id });
+        if (!transcripts.has(e.worker)) transcripts.set(e.worker, []);
+        const t = transcripts.get(e.worker);
+        if (!t.length || t[t.length - 1].at !== e.at || t[t.length - 1].status !== e.status) t.push(e);
+        if (t.length > 500) t.shift();
+        renderList();
+        if (e.worker === selected) { renderPanelHead(); if (tab === "chat") renderChatLive(); }
       });
-      if (res.status === 201) {
-        input.value = "";
-        await loadWorkers();
-      } else if (res.status === 409) {
-        error.textContent = "A worker with that name already exists.";
-      } else if (res.status === 400) {
-        error.textContent = "Use lowercase letters, numbers and single dashes (e.g. code-reviewer), up to 40 characters.";
+      feed.onopen = () => { $("feed-status").textContent = "Live feed: connected"; };
+      feed.onerror = () => { $("feed-status").textContent = "Live feed: reconnecting…"; };
+    }
+
+    // ----- panel -----------------------------------------------------------
+    const panel = $("panel");
+    function select(name) { selected = name; renderList(); renderPanel(); }
+    function renderPanel() {
+      if (!selected) { panel.replaceChildren(el("p", { class: "status" }, "Pick a worker to chat with it, see its stats, or change its settings.")); return; }
+      panel.replaceChildren(
+        el("div", { id: "panel-head" }),
+        el("div", { class: "tabs", role: "tablist" },
+          ...["chat", "stats", "settings"].map((t) => el("button", { role: "tab", "aria-selected": String(t === tab), onclick: () => { tab = t; renderPanel(); } }, t[0].toUpperCase() + t.slice(1)))),
+        el("div", { id: "tab-body", class: "tab", role: "tabpanel" }));
+      renderPanelHead();
+      ({ chat: renderChat, stats: renderStats, settings: renderSettings })[tab]();
+    }
+    function renderPanelHead() {
+      const head = $("panel-head");
+      if (!head) return;
+      const st = state.get(selected) || { status: "idle" };
+      head.replaceChildren(el("div", { class: "panel-head" },
+        el("h2", {}, selected), badge(staleOr(st)),
+        st.session_id && !["idle", "error"].includes(st.status) ? el("span", { class: "status" }, `session ${st.session_id.slice(0, 8)}`) : null,
+        el("span", { class: "gauge", title: "Share of the context window in use" }, "context", el("meter", { min: "0", max: "1", value: String(st.context_used || 0) }), `${Math.round((st.context_used || 0) * 100)}%`),
+        el("span", { class: "status" }, `cost ${money(st.cost_usd)} · turns ${st.turns ?? "–"}`)),
+        ...(st.current_task ? [el("p", { class: "status" }, `${isLive(st) ? "Task" : "Last task"}: ${shortTask(st.current_task)}`)] : []));
+    }
+
+    // --- Chat ---
+    function liveSession() {
+      const st = state.get(selected);
+      return st && st.session_id && ["thinking", "using_tool", "waiting"].includes(st.status) ? st.session_id : null;
+    }
+    function renderChat() {
+      const body = $("tab-body");
+      body.replaceChildren(el("div", { class: "transcript", id: "transcript" }), el("div", { class: "composer", id: "composer" }), el("p", { class: "error", id: "chat-error" }));
+      renderChatLive();
+    }
+    function renderChatLive() {
+      const transcript = $("transcript");
+      const composer = $("composer");
+      if (!transcript || !composer) return;
+      const events = transcripts.get(selected) || [];
+      transcript.replaceChildren(events.length ? "" : el("p", { class: "status" }, "Nothing yet. Start a session below, or wait for the master to hand this worker a task."));
+      let lastText = null;
+      for (const e of events) {
+        const s = STATUS[e.status] || { icon: "•", label: e.status };
+        transcript.append(el("p", { class: "line" }, el("time", {}, clock(e.at)), `${s.icon} ${s.label}${e.tool ? " · " + e.tool : ""}`));
+        // The final result repeats the last message; show each text once.
+        if (e.text && e.text !== lastText) transcript.append(el("p", { class: "line text" + (e.host ? " host" : "") }, e.text));
+        if (e.text) lastText = e.text;
+      }
+      transcript.scrollTop = transcript.scrollHeight;
+
+      const sid = liveSession();
+      composer.replaceChildren();
+      if (sid) {
+        const input = el("textarea", { placeholder: "Message this worker (it gets it as its next turn)…", "aria-label": "Message" });
+        const send = async () => {
+          $("chat-error").textContent = "";
+          const text = input.value.trim();
+          if (!text) return;
+          try {
+            const r = await api("POST", `/sessions/${sid}/messages`, { text });
+            transcripts.get(selected).push({ at: new Date().toISOString(), status: "waiting", text: `You: ${text}` + (r.delivered ? "" : " (logged, not delivered)"), host: true });
+            input.value = "";
+            renderChatLive();
+          } catch (e) { $("chat-error").textContent = e.message; }
+        };
+        input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); });
+        composer.append(input, el("div", { class: "row" },
+          el("button", { onclick: send }, "Send (Ctrl+Enter)"),
+          el("button", { class: "danger", onclick: async () => { if (!confirm(`End ${selected}'s session now?`)) return; try { await api("POST", `/sessions/${sid}/end`); await refreshState(); renderList(); renderPanel(); } catch (e) { $("chat-error").textContent = e.message; } } }, "End session")));
       } else {
-        error.textContent = `Something went wrong (HTTP ${res.status}).`;
+        const task = el("textarea", { placeholder: "What should this worker do? It runs in its own folder with only what its toolkit allows.", "aria-label": "Task" });
+        const web = el("label", {}, el("input", { type: "checkbox", id: "grant-web" }), " also allow WebSearch and WebFetch for this run");
+        composer.append(task, el("div", { class: "row" },
+          el("button", { onclick: async () => {
+            $("chat-error").textContent = "";
+            const text = task.value.trim();
+            if (!text) return;
+            try {
+              const tools = $("grant-web").checked ? ["WebSearch", "WebFetch"] : [];
+              await api("POST", "/sessions", { worker: selected, task: text, tools });
+              await refreshState(); renderList(); renderPanel();
+            } catch (e) { $("chat-error").textContent = e.status === 503 ? "Spawning is disabled on this server (SPAWN_ENABLED=false)." : e.message; }
+          } }, "Start a session"), web));
+      }
+    }
+
+    // --- Stats ---
+    async function renderStats() {
+      const body = $("tab-body");
+      body.replaceChildren(el("p", { class: "status" }, "Loading…"));
+      let runs = [], events = [];
+      try { [runs, events] = await Promise.all([api("GET", `/runs?worker=${encodeURIComponent(selected)}&full=true&limit=100`), api("GET", `/workers/${encodeURIComponent(selected)}/activity?limit=20`)]); }
+      catch (e) { body.replaceChildren(el("p", { class: "error" }, e.message)); return; }
+      for (const r of runs) r.metrics = r.metrics || {};
+      const done = runs.filter((r) => r.status !== "running");
+      const ok = done.filter((r) => r.status === "success").length;
+      const cost = runs.reduce((s, r) => s + (r.metrics.cost_usd || 0), 0);
+      const turns = done.map((r) => r.metrics.turns).filter((t) => t);
+      const avgTurns = turns.length ? (turns.reduce((a, b) => a + b, 0) / turns.length).toFixed(1) : "–";
+      const durations = done.map((r) => r.metrics.duration_ms).filter((d) => d);
+      const avgDur = durations.length ? sec(durations.reduce((a, b) => a + b, 0) / durations.length) : "–";
+      body.replaceChildren(
+        el("div", { class: "totals" },
+          el("div", {}, el("strong", {}, String(runs.length)), "runs"),
+          el("div", {}, el("strong", {}, done.length ? `${Math.round(100 * ok / done.length)}%` : "–"), "success"),
+          el("div", {}, el("strong", {}, money(cost)), "total cost (estimate)"),
+          el("div", {}, el("strong", {}, avgTurns), "avg turns"),
+          el("div", {}, el("strong", {}, avgDur), "avg duration")),
+        el("h3", {}, "Recent runs"),
+        runs.length ? el("table", {}, el("thead", {}, el("tr", {}, ...["Started", "Status", "Cost", "Turns", "Trigger", "Summary"].map((h) => el("th", {}, h)))),
+          el("tbody", {}, ...runs.slice(0, 15).map((r) => el("tr", {},
+            el("td", {}, when(r.started_at)), el("td", {}, `${{ success: "✔", running: "💭", failed: "✖", needs_input: "⏸", skipped: "–" }[r.status] || "•"} ${r.status}`),
+            el("td", {}, money(r.metrics.cost_usd)), el("td", {}, String(r.metrics.turns ?? "–")), el("td", {}, r.trigger),
+            el("td", {}, (r.result && r.result.summary) || r.error || "–"))))) : el("p", { class: "status" }, "No runs yet."),
+        el("h3", {}, "Activity (last 20)"),
+        events.length ? el("ul", { class: "activity" }, ...events.slice().reverse().map((e) => el("li", {}, el("time", { class: "status" }, when(e.at) + " "), ` ${e.event}`,
+          e.outcome ? ` · ${e.outcome}` : "", e.status ? ` · ${e.status}` : "", e.task ? ` · ${String(e.task).slice(0, 80)}` : ""))) : el("p", { class: "status" }, "No activity yet."));
+    }
+
+    // --- Settings ---
+    async function renderSettings() {
+      const body = $("tab-body");
+      body.replaceChildren(el("p", { class: "status" }, "Loading…"));
+      let catalog, kit;
+      const worker = workers.find((w) => w.name === selected);
+      try { [catalog, kit] = await Promise.all([api("GET", "/catalog"), api("GET", `/workers/${encodeURIComponent(selected)}/toolkit`)]); }
+      catch (e) { body.replaceChildren(el("p", { class: "error" }, e.message)); return; }
+
+      // CLAUDE.md
+      const text = el("textarea", { "aria-label": "CLAUDE.md" }); text.value = worker.instructions;
+      const mdError = el("p", { class: "save-error" });
+      const mdSave = el("button", { onclick: async () => {
+        mdError.textContent = "";
+        try { const u = await api("PUT", `/workers/${encodeURIComponent(selected)}`, { instructions: text.value }); worker.instructions = u.instructions; text.value = u.instructions; mdError.textContent = "Saved."; mdError.style.color = "var(--ok)"; }
+        catch (e) { mdError.style.color = ""; mdError.textContent = e.message; }
+      } }, "Save CLAUDE.md");
+
+      // toolkit
+      const picks = { tools: new Set(kit.tools), mcp_servers: new Set(kit.mcp_servers), skills: new Set(kit.skills) };
+      const group = (kind, title, hint) => el("div", {}, el("h3", {}, title), el("p", { class: "status" }, hint),
+        catalog[kind].length ? el("div", { class: "catalog" }, ...catalog[kind].map((item) => el("label", {},
+          el("input", { type: "checkbox", checked: picks[kind].has(item.name) ? "" : null, onchange: (e) => { e.target.checked ? picks[kind].add(item.name) : picks[kind].delete(item.name); } }),
+          item.name, el("span", {}, item.description ? ` — ${item.description}` : "")))) : el("p", { class: "status" }, "(nothing in the catalog)"));
+      const readFrom = el("input", { value: kit.read_from.join(", "), placeholder: "workers/writer/outputs, projects/first-reel/artifacts", "aria-label": "Read-only folders" });
+      readFrom.style.width = "100%";
+      const kitError = el("p", { class: "save-error" });
+      const kitSave = el("button", { onclick: async () => {
+        kitError.textContent = ""; kitError.style.color = "";
+        try {
+          await api("PUT", `/workers/${encodeURIComponent(selected)}/toolkit`, {
+            tools: [...picks.tools], mcp_servers: [...picks.mcp_servers], skills: [...picks.skills],
+            read_from: readFrom.value.split(",").map((s) => s.trim()).filter(Boolean),
+          });
+          kitError.textContent = "Toolkit saved; every new session of this worker gets it."; kitError.style.color = "var(--ok)";
+          renderSettings();
+        } catch (e) { kitError.textContent = e.message; }
+      } }, "Save toolkit");
+      const installed = el("ul", { class: "workers skills" }, ...kit.skills.map((s) => el("li", {}, s,
+        el("button", { class: "secondary", onclick: async () => { if (!confirm(`Remove the skill "${s}" from ${selected}?`)) return; try { await api("DELETE", `/workers/${encodeURIComponent(selected)}/toolkit/skills/${encodeURIComponent(s)}`); renderSettings(); } catch (e) { kitError.textContent = e.message; } } }, "Remove"))));
+
+      const delError = el("p", { class: "error" });
+      body.replaceChildren(
+        el("h3", {}, "Instructions (CLAUDE.md)"), text, el("div", { class: "row" }, mdSave, mdError),
+        el("h3", {}, "Toolkit"), el("p", { class: "status" }, "Nothing is allowed unless it is ticked here. The list is the host's catalog (catalog.json and the skill templates)."),
+        group("tools", "Built-in tools", "Web access for every run of this worker."),
+        group("mcp_servers", "MCP servers", "Vetted in catalog.json on this machine."),
+        group("skills", "Skills", "Installed into the worker's .claude/skills/ from the templates."),
+        el("h3", {}, "Read-only folders"), el("p", { class: "status" }, "Repo-relative, under workers/ or projects/, comma-separated."), readFrom,
+        el("div", { class: "row" }, kitSave, kitError),
+        kit.skills.length ? el("div", {}, el("h3", {}, "Installed skills"), installed) : null,
+        el("h3", {}, "Danger zone"),
+        el("div", { class: "row" }, el("button", { class: "danger", onclick: async () => {
+          if (!confirm(`Delete worker "${selected}" and its folder? This cannot be undone.`)) return;
+          delError.textContent = "";
+          try { await api("DELETE", `/workers/${encodeURIComponent(selected)}`); selected = null; await loadWorkers(); renderPanel(); }
+          catch (e) { delError.textContent = e.status === 403 ? "This worker is protected and cannot be deleted." : e.status === 409 ? "This worker has a running session; end it first." : e.message; }
+        } }, "Delete worker"), delError));
+    }
+
+    // ----- create forms ----------------------------------------------------
+    $("quick-create-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = $("name");
+      $("error").textContent = "";
+      const name = input.value.trim();
+      try { await api("POST", "/workers", { name }); input.value = ""; await loadWorkers(); select(name); }
+      catch (e) {
+        $("error").textContent = e.status === 409 ? "A worker with that name already exists."
+          : e.status === 400 ? "Use lowercase letters, numbers and single dashes (e.g. code-reviewer), up to 40 characters." : e.message;
       }
     });
 
-    // --- New worker (from template) ---
-
-    const templateSelect = document.getElementById("template-select");
-    const nameInput = document.getElementById("new-worker-name");
-    const roleInput = document.getElementById("new-worker-role");
-    const preview = document.getElementById("preview");
-    const newWorkerError = document.getElementById("new-worker-error");
-    const newWorkerForm = document.getElementById("new-worker-form");
-
+    const templateSelect = $("template-select"), nameInput = $("new-worker-name"), roleInput = $("new-worker-role"), preview = $("preview"), newWorkerError = $("new-worker-error"), newWorkerForm = $("new-worker-form");
     const templateBodies = new Map();
-
-    function starterInstructions(name) {
-      return `# ${name || "worker-name"}\n\nDescribe what this worker does and how it should work.\n`;
-    }
-
+    const starterInstructions = (name) => `# ${name || "worker-name"}\n\nDescribe what this worker does and how it should work.\n`;
     function buildInstructions() {
-      const name = nameInput.value.trim();
-      const role = roleInput.value.trim();
-      const templateName = templateSelect.value;
+      const name = nameInput.value.trim(), role = roleInput.value.trim(), templateName = templateSelect.value;
       const body = templateName ? templateBodies.get(templateName) : starterInstructions(name);
       const lines = (body || "").split("\n");
       const hasHeading = lines[0].startsWith("# ");
       const rest = (hasHeading ? lines.slice(1).join("\n") : body || "").replace(/^\n+/, "");
-      const heading = `# ${name || "worker-name"}`;
       const roleLine = role ? `\n**Role:** ${role}\n` : "";
-      return `${heading}\n${roleLine}\n${rest}`.replace(/\n{3,}/g, "\n\n");
+      return `# ${name || "worker-name"}\n${roleLine}\n${rest}`.replace(/\n{3,}/g, "\n\n");
     }
-
-    function updatePreview() {
-      preview.textContent = buildInstructions();
-    }
-
+    const updatePreview = () => { preview.textContent = buildInstructions(); };
     async function loadTemplates() {
-      const res = await fetch("/templates");
-      if (!res.ok) {
-        newWorkerError.textContent = "Could not load templates; you can still create a blank worker.";
-        return;
-      }
-      const templates = await res.json();
-      for (const template of templates) {
-        const option = document.createElement("option");
-        option.value = template.name;
-        option.textContent = template.description ? `${template.name} — ${template.description}` : template.name;
-        templateSelect.append(option);
-      }
+      try {
+        for (const t of await api("GET", "/templates")) templateSelect.append(el("option", { value: t.name }, t.description ? `${t.name} — ${t.description}` : t.name));
+      } catch (_) { newWorkerError.textContent = "Could not load templates; you can still create a blank worker."; }
     }
-
-    const createButton = newWorkerForm.querySelector("button[type=submit]");
-
     async function ensureTemplateLoaded(name) {
       if (!name || templateBodies.has(name)) return;
-      createButton.disabled = true;
-      try {
-        const res = await fetch(`/templates/${encodeURIComponent(name)}`);
-        if (res.ok) {
-          const data = await res.json();
-          templateBodies.set(name, data.content);
-        } else {
-          newWorkerError.textContent = `Could not load that template (HTTP ${res.status}).`;
-        }
-      } finally {
-        createButton.disabled = false;
-      }
+      try { templateBodies.set(name, (await api("GET", `/templates/${encodeURIComponent(name)}`)).content); }
+      catch (e) { newWorkerError.textContent = `Could not load that template (${e.message}).`; }
     }
-
-    templateSelect.addEventListener("change", async () => {
-      newWorkerError.textContent = "";
-      await ensureTemplateLoaded(templateSelect.value);
-      updatePreview();
-    });
-
+    templateSelect.addEventListener("change", async () => { newWorkerError.textContent = ""; await ensureTemplateLoaded(templateSelect.value); updatePreview(); });
     nameInput.addEventListener("input", updatePreview);
     roleInput.addEventListener("input", updatePreview);
-
     newWorkerForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       newWorkerError.textContent = "";
       await ensureTemplateLoaded(templateSelect.value);
       const name = nameInput.value.trim();
-      const instructions = buildInstructions();
-
-      // One call: name and content together, so there is no half-created
-      // worker if anything fails.
-      const createRes = await fetch("/workers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, instructions }),
-      });
-
-      if (createRes.status === 409) {
-        newWorkerError.textContent = "A worker with that name already exists.";
-        return;
+      try {
+        await api("POST", "/workers", { name, instructions: buildInstructions() });
+        nameInput.value = ""; roleInput.value = ""; templateSelect.value = ""; updatePreview();
+        $("new-worker").open = false;
+        await loadWorkers(); select(name);
+      } catch (e) {
+        newWorkerError.textContent = e.status === 409 ? "A worker with that name already exists."
+          : e.status === 400 ? "Use lowercase letters, numbers and single dashes (e.g. code-reviewer), up to 40 characters." : e.message;
       }
-      if (createRes.status === 400) {
-        newWorkerError.textContent = "Use lowercase letters, numbers and single dashes (e.g. code-reviewer), up to 40 characters.";
-        return;
-      }
-      if (createRes.status !== 201) {
-        newWorkerError.textContent = `Something went wrong (HTTP ${createRes.status}).`;
-        return;
-      }
-
-      nameInput.value = "";
-      roleInput.value = "";
-      templateSelect.value = "";
-      updatePreview();
-      await loadWorkers();
     });
 
     updatePreview();
     loadTemplates();
-    loadWorkers();
+    loadWorkers().then(() => { connectFeed(); if (location.hash.startsWith("#/w/")) select(decodeURIComponent(location.hash.slice(4))); });
+    setInterval(async () => { await refreshState(); renderList(); if (selected && tab !== "chat") renderPanelHead(); }, 30_000);
   </script>
 </body>
 </html>
