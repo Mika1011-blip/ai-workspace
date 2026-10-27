@@ -93,6 +93,11 @@ def artifacts(project_dir: Path) -> list[dict]:
     return out
 
 
+def append_decision(project_dir: Path, entry: dict) -> None:
+    with (project_dir / "decisions.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
 def decisions(project_dir: Path) -> list[dict]:
     path = project_dir / "decisions.jsonl"
     if not path.is_file():
