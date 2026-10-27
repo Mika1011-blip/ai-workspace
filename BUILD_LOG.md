@@ -4,3 +4,5 @@
 - 2026-10-26 17:25:56 — commit 460952a Add v1: FastAPI agents API, web page, Docker setup and tests
 - 2026-10-27 14:07:43 — changed: agents/app-master/.claude/agents/context-writer.md, agents/app-master/.claude/agents/interviewer.md, agents/app-master/.claude/agents/reviewer.md, agents/app-master/.claude/agents/skill-writer.md, agents/app-master/.claude/settings.json, agents/app-master/.mcp.json, agents/app-master/CLAUDE.md, docs/master-agent.md, mcp_server/__init__.py, mcp_server/requirements.txt, mcp_server/tests/__init__.py, mcp_server/tests/test_workspace_server.py, mcp_server/workspace_server.py
 - 2026-10-27 14:10:14 — commit c89c1d1 Add master-agent MCP tools and app-master agent
+- 2026-10-27 14:10:24 — commit d978d87 Log build step
+- 2026-10-27 14:40:11 — commit 2baa060 Fix ultrareview findings: non-interactive interviewer, dev deps
