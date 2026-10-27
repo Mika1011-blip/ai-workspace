@@ -105,3 +105,4 @@
 - 2026-10-27 21:25:33 — changed: workers/scriptwriter/.claude/settings.json
 - 2026-10-27 21:26:46 — changed: workers/renderer/.claude/settings.json, workers/scriptwriter/.claude/settings.json
 - 2026-10-27 21:32:18 — commit 492f18b Wrap captions to the frame width
+- 2026-10-27 21:53:54 — commit 380c3bb Route app sessions through a Runner
