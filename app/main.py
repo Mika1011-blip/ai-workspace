@@ -427,7 +427,7 @@ def create_app(
     projects.init_table(sessions_db_path)
     messages_log_path = Path(messages_log or os.environ.get("MESSAGES_LOG", "runs/messages.jsonl"))
     messages_log_path.parent.mkdir(parents=True, exist_ok=True)
-    api_url = api_url or os.environ.get("WORKSPACE_API_URL", "http://localhost:8000")
+    api_url = api_url or os.environ.get("WORKSPACE_API_URL", "http://127.0.0.1:8000")
     shared_dir = workers_path / "_shared"
     projects_path = Path(projects_dir or os.environ.get("PROJECTS_DIR", "projects")).resolve()
     projects_path.mkdir(parents=True, exist_ok=True)

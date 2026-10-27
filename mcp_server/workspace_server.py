@@ -9,7 +9,7 @@ import os
 import httpx
 from fastmcp import FastMCP
 
-API_BASE_URL = os.environ.get("WORKSPACE_API_URL", "http://localhost:8000")
+API_BASE_URL = os.environ.get("WORKSPACE_API_URL", "http://127.0.0.1:8000")
 # Set by the API when it spawns this session. The token *is* this session's
 # identity: the API resolves who is calling from it, so these tools never
 # need to know their own session id.

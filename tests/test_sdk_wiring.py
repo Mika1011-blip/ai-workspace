@@ -99,7 +99,7 @@ class TestSdkOptions:
         (tmp_path / "projects" / "p" / "artifacts").mkdir(parents=True)
         spec = SpawnSpec(
             "scriptwriter", "write it", "tok123", tmp_path / "workers" / "scriptwriter", tmp_path / "workers" / "_shared",
-            "http://localhost:8000", ("WebFetch",), (), (tmp_path / "projects" / "p" / "artifacts",),
+            "http://127.0.0.1:8000", ("WebFetch",), (), (tmp_path / "projects" / "p" / "artifacts",),
         )
 
         options, prompt = sdk_options(spec, "11111111-2222-3333-4444-555555555555")
@@ -117,7 +117,7 @@ class TestSdkOptions:
         assert "Bash" in settings["permissions"]["deny"] and "WebFetch" in settings["permissions"]["allow"]
         assert any(d.startswith("Write(//") and d.endswith("_shared/**)") for d in settings["permissions"]["deny"])
         server = options.mcp_servers["ai-workspace"]
-        assert server["env"] == {"SESSION_TOKEN": "tok123", "WORKSPACE_API_URL": "http://localhost:8000"}
+        assert server["env"] == {"SESSION_TOKEN": "tok123", "WORKSPACE_API_URL": "http://127.0.0.1:8000"}
         assert "ANTHROPIC_API_KEY" not in options.env
 
 
