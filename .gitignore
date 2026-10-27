@@ -9,3 +9,5 @@ workers/*/activity.jsonl
 projects/
 .claude/crew/runs/
 .playwright-mcp/
+frontend/node_modules/
+frontend/dist/
