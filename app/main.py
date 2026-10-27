@@ -19,7 +19,7 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from app import activity, pipeline, projects, render, run_records, sdk_runner, sessions_store
+from app import activity, pipeline, projects, render, run_records, sdk_runner, sessions_store, toolkit
 from app.runner import CliRunner, Runner, SpawnSpec
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -69,6 +69,15 @@ class SkillCreate(BaseModel):
 class Skill(BaseModel):
     name: str
     content: str
+
+
+class ToolkitBody(BaseModel):
+    """What a worker is allowed on every spawn; each name must be in the catalog."""
+
+    tools: list[str] = []
+    mcp_servers: list[str] = []
+    read_from: list[str] = []  # repo-relative folders under workers/ or projects/
+    skills: list[str] = []     # installed into the worker's .claude/skills/
 
 
 class SessionCreate(BaseModel):
@@ -207,7 +216,7 @@ def rule_path(directory: PurePath) -> str:
 
 
 def lockdown_settings(
-    shared_dir: Path, read_only_dirs: list[Path] = (), tools: list[str] = ()
+    shared_dir: Path, read_only_dirs: list[Path] = (), tools: list[str] = (), mcp_servers: list[str] = ()
 ) -> dict:
     """The wall, as the API enforces it on every spawned app session. Mirrors
     docs/comms-protocol.md §5: Claude Code's own messaging is closed; the
@@ -221,7 +230,7 @@ def lockdown_settings(
         deny += [f"Edit({rule_path(directory)}/**)", f"Write({rule_path(directory)}/**)"]
     return {
         "permissions": {
-            "allow": [*BASE_TOOLS, *tools, f"mcp__{MCP_SERVER_NAME}__*"],
+            "allow": [*BASE_TOOLS, *tools, f"mcp__{MCP_SERVER_NAME}__*", *[f"mcp__{n}__*" for n in mcp_servers]],
             "deny": deny,
         },
         "crossSessionInbound": "refuse",
@@ -243,22 +252,25 @@ def token_matches(entry: dict, token: str | None) -> bool:
     return hmac.compare_digest(entry["token_hash"], hash_token(token))
 
 
-def lockdown_mcp_config(api_url: str, token: str) -> dict:
+def lockdown_mcp_config(api_url: str, token: str, extra: dict | None = None) -> dict:
     # The raw token lives only here, in the spawned session's MCP env. The
     # API keeps its hash; nothing ever returns the token in a response. The
     # token is the session's whole identity: `claude --bg` picks its own id
     # (it ignores --session-id), so the id isn't known until after launch
     # and the API resolves "who is calling" from the token instead.
-    return {
-        "mcpServers": {
-            MCP_SERVER_NAME: {
-                "type": "stdio",
-                "command": sys.executable,
-                "args": [str(MCP_SERVER_PATH)],
-                "env": {"SESSION_TOKEN": token, "WORKSPACE_API_URL": api_url},
-            }
+    servers = {
+        MCP_SERVER_NAME: {
+            "type": "stdio",
+            "command": sys.executable,
+            "args": [str(MCP_SERVER_PATH)],
+            "env": {"SESSION_TOKEN": token, "WORKSPACE_API_URL": api_url},
         }
     }
+    # The worker's toolkit may add catalog servers; ours is never replaced.
+    for name, definition in (extra or {}).items():
+        if name != MCP_SERVER_NAME:
+            servers[name] = definition
+    return {"mcpServers": servers}
 
 
 def spawn_argv(
@@ -270,6 +282,7 @@ def spawn_argv(
     tools: list[str] = (),
     read_from: list[Path] = (),
     write_to: list[Path] = (),
+    mcp_servers: dict | None = None,
 ) -> list[str]:
     """The exact command for one locked-down app session.
 
@@ -293,8 +306,8 @@ def spawn_argv(
         "--add-dir", *[str(d) for d in add_dirs],
         "--tools", ",".join([*BASE_TOOLS, *tools]),
         "--permission-mode", "dontAsk",
-        "--settings", json.dumps(lockdown_settings(shared_dir, list(read_from), list(tools))),
-        "--mcp-config", json.dumps(lockdown_mcp_config(api_url, token)),
+        "--settings", json.dumps(lockdown_settings(shared_dir, list(read_from), list(tools), list(mcp_servers or {}))),
+        "--mcp-config", json.dumps(lockdown_mcp_config(api_url, token, mcp_servers)),
         "--name", worker,
         f"Read CLAUDE.md and ../_shared/COMMS.md, then: {task}",
     ]
@@ -312,10 +325,12 @@ def sdk_options(spec: SpawnSpec, session_id: str):
         cwd=str(spec.worker_folder),
         tools=[*BASE_TOOLS, *spec.tools],
         permission_mode="dontAsk",
-        settings=json.dumps(lockdown_settings(spec.shared_dir, list(spec.read_from), list(spec.tools))),
+        settings=json.dumps(lockdown_settings(
+            spec.shared_dir, list(spec.read_from), list(spec.tools), list(spec.mcp_servers)
+        )),
         setting_sources=["project"],
         add_dirs=[str(d) for d in add_dirs],
-        mcp_servers=lockdown_mcp_config(spec.api_url, spec.token)["mcpServers"],
+        mcp_servers=lockdown_mcp_config(spec.api_url, spec.token, spec.mcp_servers)["mcpServers"],
         strict_mcp_config=True,
         session_id=session_id,
         env=sdk_runner.session_env(),
@@ -389,12 +404,21 @@ def create_app(
     running_ids_fn: Callable[[], set[str] | None] | None = None,
     render_run: render.RunFn | None = None,
     runner: Runner | None = None,
+    catalog_file: Path | str | None = None,
 ) -> FastAPI:
     # Resolved once: these paths are handed to other processes (spawned
     # sessions, docker) whose cwd is not ours.
     workers_path = Path(workers_dir or os.environ.get("WORKERS_DIR", "workers")).resolve()
     workers_path.mkdir(parents=True, exist_ok=True)
     templates_path = Path(templates_dir or os.environ.get("TEMPLATES_DIR", "worker_templates"))
+    catalog_path = Path(catalog_file or os.environ.get("CATALOG_FILE", Path(__file__).resolve().parents[1] / "catalog.json"))
+
+    def load_catalog() -> dict:
+        # Re-read on every use: editing catalog.json must not need a restart.
+        try:
+            return toolkit.load_catalog(catalog_path, templates_path / "skills")
+        except ValueError as exc:
+            raise HTTPException(status_code=500, detail=f"bad_catalog: {exc}")
     sessions_db_path = Path(sessions_db or os.environ.get("SESSIONS_DB", "data/sessions.db"))
     sessions_store.init_db(sessions_db_path)
     run_records.init_table(sessions_db_path)
@@ -442,6 +466,7 @@ def create_app(
             lambda spec: spawn_argv(
                 spec.worker, spec.task, spec.token, spec.shared_dir, spec.api_url,
                 tools=list(spec.tools), read_from=list(spec.read_from), write_to=list(spec.write_to),
+                mcp_servers=spec.mcp_servers,
             ),
             spawn_fn or default_spawn_fn,
             stop_fn or default_stop_fn,
@@ -699,6 +724,48 @@ def create_app(
         (skill_dir / "SKILL.md").write_text(body.content, encoding="utf-8")
         return Skill(name=body.skill_name, content=body.content)
 
+    @app.get("/catalog")
+    def get_catalog() -> dict:
+        """What may be attached to a worker on this host: built-in web tools,
+        the MCP servers vetted in catalog.json, the skills in worker_templates/skills."""
+        return toolkit.catalog_view(load_catalog())
+
+    def worker_folder_or_404(name: str) -> Path:
+        validate_name(name)
+        folder = workers_path / name
+        if not (folder / "CLAUDE.md").is_file():
+            raise HTTPException(status_code=404, detail=f"Worker '{name}' not found")
+        return folder
+
+    @app.get("/workers/{name}/toolkit")
+    def get_toolkit(name: str) -> dict:
+        return toolkit.read(worker_folder_or_404(name))
+
+    @app.put("/workers/{name}/toolkit")
+    def set_toolkit(body: ToolkitBody, name: str) -> dict:
+        """Attach exactly these tools / MCP servers / read-only folders to the
+        worker, and install the listed catalog skills. Every spawn applies it."""
+        folder = worker_folder_or_404(name)
+        try:
+            kit = toolkit.validate(body.model_dump(), load_catalog())
+        except toolkit.BadToolkit as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        kit["read_from"] = sorted({d.replace("\\", "/") for d in kit["read_from"]})
+        for d in kit["read_from"]:
+            resolve_grant(d)  # 400 bad_dir if it is outside workers/ or projects/, or missing
+        result = toolkit.write(folder, kit, load_catalog())
+        activity.log(workers_path, name, "toolkit_set", {k: result[k] for k in ("tools", "mcp_servers", "read_from", "skills")})
+        return result
+
+    @app.delete("/workers/{name}/toolkit/skills/{skill}")
+    def remove_skill(name: str, skill: str) -> dict:
+        folder = worker_folder_or_404(name)
+        validate_name(skill)
+        if not toolkit.remove_skill(folder, skill):
+            raise HTTPException(status_code=404, detail=f"Skill '{skill}' is not installed on '{name}'")
+        activity.log(workers_path, name, "skill_removed", {"skill": skill})
+        return toolkit.read(folder)
+
     def start_session(
         worker: str,
         task: str,
@@ -720,9 +787,18 @@ def create_app(
         token = secrets.token_urlsafe(32)
         shared_dir.mkdir(exist_ok=True)
         write_lockdown_settings(worker_folder, shared_dir)
+        # The worker's toolkit applies on every spawn, on top of this spawn's grants.
+        kit = toolkit.read(worker_folder)
+        catalog = load_catalog()
+        missing = sorted((set(kit["tools"]) - set(catalog["tools"])) | (set(kit["mcp_servers"]) - set(catalog["mcp_servers"])))
+        if missing:
+            raise HTTPException(status_code=409, detail=f"toolkit_not_in_catalog: {missing} (fix {worker}/toolkit.json)")
+        tools = list(tools) + [t for t in kit["tools"] if t not in tools]  # request order, then the toolkit
+        read_from = list(read_from) + [resolve_grant(d) for d in kit["read_from"]]
+        mcp_servers = toolkit.server_configs(kit["mcp_servers"], catalog)
         session_id = runner.start(SpawnSpec(
             worker, task, token, worker_folder, shared_dir, api_url,
-            tuple(tools), tuple(read_from), tuple(write_to),
+            tuple(tools), tuple(read_from), tuple(write_to), mcp_servers,
         ))
         now = datetime.now(timezone.utc)
         started_at = now.isoformat()
@@ -748,6 +824,7 @@ def create_app(
                 "tools": list(tools),
                 "read_from": [str(p) for p in read_from],
                 "write_to": [str(p) for p in write_to],
+                "mcp_servers": sorted(mcp_servers),
             },
         )
         return {

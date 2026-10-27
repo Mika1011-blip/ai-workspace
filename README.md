@@ -30,6 +30,12 @@ login this machine already has (`claude login`); any `ANTHROPIC_API_KEY`
 in the environment is deliberately kept away from them. `RUNNER=cli` falls
 back to the old `claude --bg` processes.
 
+A worker gets nothing beyond its own folder, `_shared/` and the workspace
+MCP unless you attach it. `catalog.json` (plus `worker_templates/skills/`)
+is what *may* be attached on this machine; `PUT /workers/<name>/toolkit`
+or the `set_toolkit` MCP tool attaches tools, MCP servers, read-only
+folders and skills to one worker, and every spawn applies them.
+
 Inside Docker, `POST /sessions` answers `503 spawning_disabled`: spawning a
 session needs the SDK's bundled CLI and your login, and the image has
 neither. Everything else works there; `workers/`, `worker_templates/`,
