@@ -18,7 +18,7 @@ Web app to create and manage Claude workers. Each worker is a folder `workers/<n
 pip install -r requirements-dev.txt
 uvicorn app.main:app --reload
 
-# Run: docker compose up  → http://localhost:8000
+# Run: docker compose up  → http://127.0.0.1:8000
 
 # Tests: pytest  (run before saying a task is done)
 pytest

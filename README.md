@@ -17,7 +17,7 @@ browser ──► app/main.py (FastAPI) ──► workers/<name>/CLAUDE.md
 
 ```bash
 pip install -r requirements-dev.txt
-uvicorn app.main:app --reload        # http://localhost:8000
+uvicorn app.main:app --reload        # http://127.0.0.1:8000
 pytest                               # run before saying a task is done
 
 docker compose up                    # same app in a container; see note below
