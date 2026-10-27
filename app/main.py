@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app import activity, pipeline, projects, render, run_records, sessions_store
+from app.runner import CliRunner, Runner, SpawnSpec
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -353,6 +354,7 @@ def create_app(
     stop_fn: Callable[[str], None] | None = None,
     running_ids_fn: Callable[[], set[str] | None] | None = None,
     render_run: render.RunFn | None = None,
+    runner: Runner | None = None,
 ) -> FastAPI:
     # Resolved once: these paths are handed to other processes (spawned
     # sessions, docker) whose cwd is not ours.
@@ -392,9 +394,19 @@ def create_app(
         if not resolved.is_dir():
             raise HTTPException(status_code=400, detail=f"bad_dir: {raw!r} does not exist")
         return resolved
-    spawn = spawn_fn or default_spawn_fn
-    stop = stop_fn or default_stop_fn
-    running_ids = running_ids_fn or default_running_ids_fn
+    # Sessions are run through a Runner; the three callables are the CLI
+    # runner's parts, kept so tests (and the host) can fake them one by one.
+    if runner is None:
+        runner = CliRunner(
+            lambda spec: spawn_argv(
+                spec.worker, spec.task, spec.token, spec.shared_dir, spec.api_url,
+                tools=list(spec.tools), read_from=list(spec.read_from), write_to=list(spec.write_to),
+            ),
+            spawn_fn or default_spawn_fn,
+            stop_fn or default_stop_fn,
+            running_ids_fn or default_running_ids_fn,
+            parse_spawned_id,
+        )
     if spawn_enabled is None:
         spawn_enabled = os.environ.get("SPAWN_ENABLED", "true").lower() not in ("0", "false", "no")
 
@@ -435,7 +447,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         if spawn_enabled:
-            ids = running_ids()
+            ids = runner.running_ids()
             if ids is not None:
                 now = datetime.now(timezone.utc)
                 for sid in sessions_store.reconcile(sessions_db_path, ids, now.isoformat()):
@@ -609,12 +621,10 @@ def create_app(
         token = secrets.token_urlsafe(32)
         shared_dir.mkdir(exist_ok=True)
         write_lockdown_settings(worker_folder, shared_dir)
-        argv = spawn_argv(
-            worker, task, token, shared_dir, api_url,
-            tools=list(tools), read_from=list(read_from), write_to=list(write_to),
-        )
-        # Claude Code assigns the id itself and prints it; it is only known now.
-        session_id = parse_spawned_id(spawn(argv, worker_folder))
+        session_id = runner.start(SpawnSpec(
+            worker, task, token, worker_folder, shared_dir, api_url,
+            tuple(tools), tuple(read_from), tuple(write_to),
+        ))
         now = datetime.now(timezone.utc)
         started_at = now.isoformat()
         sessions_store.insert_session(
@@ -1057,7 +1067,7 @@ def create_app(
         if entry["status"] != "live":
             raise HTTPException(status_code=409, detail="session_ended")
         if spawn_enabled:
-            stop(session_id)
+            runner.stop(session_id)
         now = datetime.now(timezone.utc)
         ended_at = now.isoformat()
         sessions_store.mark_ended(sessions_db_path, session_id, ended_at)
