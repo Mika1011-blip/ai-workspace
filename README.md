@@ -44,6 +44,10 @@ Things that live outside git and bit us once each:
 2. **The crew registry is per machine.** `.claude/crew/registry.json` is
    gitignored because session ids don't travel. On a new machine start
    with `/rebuild-registry`, then spawn what you need with `/spawn-worker`.
+   Both skills (and `/end-worker`) just run `scripts/crew.py`, which is the
+   one place the crew lifecycle is implemented: each worker gets its own
+   worktree `.claude/worktrees/<role>-<id>` on branch `work/<role>-<id>`,
+   and `end` removes it only once that branch is merged.
 3. **Crew workers must run in the lead's permission mode.** Claude Code
    holds cross-session messages between sessions in different modes, and a
    background worker can never approve the hold. `/spawn-worker` passes

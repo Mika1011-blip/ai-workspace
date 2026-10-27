@@ -11,6 +11,9 @@ current id via the registry before sending anything.
 2. **Read the registry right before every send.** Never rely on memory of a
    previously-seen id — it may have ended since. Re-read
    `.claude/crew/registry.json` immediately before each `SendMessage`.
+   Crew workers run in their own worktree, where that file does not exist:
+   read it from the main checkout — the lead gives you its absolute path
+   when it spawns you.
 3. **Only the lead writes the registry.** Workers read it to find each
    other; they never add, edit, or remove entries themselves.
 4. **Crew talks only to crew + you.** A crew session may message other
