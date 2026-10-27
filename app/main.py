@@ -10,7 +10,7 @@ import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Callable
 
 from fastapi import FastAPI, Header, HTTPException, Query
@@ -191,9 +191,17 @@ BASE_TOOLS = ["Read", "Glob", "Grep", "Edit", "Write"]
 GRANTABLE_TOOLS = {"WebSearch", "WebFetch"}
 
 
-def rule_path(directory: Path) -> str:
-    # "//" prefix = absolute path in Claude Code permission rules.
-    return "//" + directory.resolve().as_posix().lstrip("/")
+def rule_path(directory: PurePath) -> str:
+    """An absolute directory as a Claude Code permission-rule path: the "//"
+    prefix means absolute, and on Windows the drive is a lower-case folder,
+    C:/x/y -> //c/x/y. Verified live: //C:/x/y never matches, so with the
+    old form the _shared deny rule silently did nothing on Windows."""
+    if isinstance(directory, Path):
+        directory = directory.resolve()
+    posix = directory.as_posix()
+    if directory.drive:
+        posix = "/" + directory.drive.rstrip(":").lower() + posix[len(directory.drive):]
+    return "//" + posix.lstrip("/")
 
 
 def lockdown_settings(

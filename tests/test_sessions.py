@@ -190,7 +190,9 @@ class TestSpawnLockdown:
     def test_may_write_in_its_own_folder_but_not_in_shared(self, client, workers_dir):
         _, argv, _ = self._spawn_argv(client, workers_dir)
         settings = json.loads(argv[argv.index("--settings") + 1])
-        shared = "//" + (workers_dir / "_shared").resolve().as_posix().lstrip("/")
+        from tests.test_grants import rule
+
+        shared = rule(workers_dir / "_shared")
 
         # --restricted already confines the file tools to cwd + --add-dir; this
         # grants writing there, then takes _shared back out of the writable set.

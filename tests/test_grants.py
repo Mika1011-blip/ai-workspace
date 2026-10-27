@@ -51,7 +51,39 @@ def add_dirs_of(argv):
 
 
 def rule(path):
-    return "//" + path.resolve().as_posix().lstrip("/")
+    # The documented rule form: absolute, and a Windows drive as a lower-case
+    # folder (//c/...). Spelled out here on purpose, not imported from the app.
+    resolved = path.resolve()
+    posix = resolved.as_posix()
+    if resolved.drive:
+        drive, rest = posix.split(":", 1)
+        return "//" + drive.lower() + rest
+    return "//" + posix.lstrip("/")
+
+
+class TestRulePath:
+    def test_windows_drive_becomes_a_lower_case_folder(self):
+        from pathlib import PureWindowsPath
+
+        from app.main import rule_path
+
+        assert rule_path(PureWindowsPath("C:/ws/workers/_shared")) == "//c/ws/workers/_shared"
+
+    def test_posix_path_keeps_its_root(self):
+        from pathlib import PurePosixPath
+
+        from app.main import rule_path
+
+        assert rule_path(PurePosixPath("/srv/ws/workers/_shared")) == "//srv/ws/workers/_shared"
+
+    def test_the_shared_deny_rule_uses_that_form(self, client, workers_dir):
+        create_worker(client, "researcher")
+
+        deny = settings_of(argv_of(spawn(client, "researcher")))["permissions"]["deny"]
+
+        shared = (workers_dir / "_shared").resolve()
+        assert f"Edit({rule(shared)}/**)" in deny and f"Write({rule(shared)}/**)" in deny
+        assert not any("//C:" in d or "//c:" in d for d in deny)
 
 
 class TestGrantedDirectoriesAreAbsolute:
