@@ -8,6 +8,7 @@ mounted at /project. Subcommands:
   frames   final-candidate.mp4 -> /project/artifacts/07-render-frames/frame-NN.jpg
   probe    <file>  -> JSON summary of streams on stdout
   publish  final-candidate.mp4 -> /project/final.mp4 (H.264/AAC/yuv420p/faststart) + /project/preview.jpg
+  rasterize <in.svg> <out.png> [width height]   paths relative to artifacts/
 
 plan.json:
   {
@@ -15,10 +16,13 @@ plan.json:
     "audio": "05-voice.mp3",                    # optional, relative to artifacts/
     "shots": [
       {"text": "Why do cats purr?", "duration": 2.5, "color": "#1b1b2f"},
-      {"image": "05-shot-1.png", "text": "...", "duration": 4}
+      {"image": "05-shot-1.png", "text": "...", "duration": 4},
+      {"svg": "05-shot-2.svg", "text": "...", "duration": 4}
     ]
   }
-Each shot is a still (an image, or a flat colour) with an optional caption.
+Each shot is a still -- an image, an SVG (rasterised here at the frame size:
+the studio's code-made image engine), or a flat colour -- with an optional
+caption.
 """
 
 import json
@@ -72,6 +76,15 @@ def caption_filter(text: str, width: int, height: int, tmp: Path, index: int) ->
     )
 
 
+def rasterize(svg: Path, png: Path, width: int, height: int, log) -> None:
+    """SVG -> PNG at the frame size, aspect kept (rsvg-convert pads nothing:
+    the scale/pad filter in render() centres it on the frame)."""
+    if not svg.is_file():
+        raise RuntimeError(f"svg not found: {svg}")
+    run(["rsvg-convert", "--keep-aspect-ratio", "--width", str(width), "--height", str(height),
+         "--output", str(png), str(svg)], log)
+
+
 def render(log) -> None:
     plan = json.loads((ARTIFACTS / "07-render" / "plan.json").read_text(encoding="utf-8"))
     width, height, fps = int(plan.get("width", 1080)), int(plan.get("height", 1920)), int(plan.get("fps", 30))
@@ -85,7 +98,11 @@ def render(log) -> None:
             duration = float(shot.get("duration", 3))
             out = tmp / f"shot-{i:02d}.mp4"
             vf = f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,{caption_filter(shot.get('text', ''), width, height, tmp, i)},format=yuv420p"
-            if shot.get("image"):
+            if shot.get("svg"):
+                png = tmp / f"shot-{i:02d}.png"
+                rasterize(ARTIFACTS / shot["svg"], png, width, height, log)
+                src = ["-loop", "1", "-t", str(duration), "-i", str(png)]
+            elif shot.get("image"):
                 src = ["-loop", "1", "-t", str(duration), "-i", str(ARTIFACTS / shot["image"])]
             else:
                 color = shot.get("color", "#101010")
@@ -172,6 +189,17 @@ def main(argv: list[str]) -> int:
     cmd, rest = argv[0], argv[1:]
     if cmd == "probe":
         print(json.dumps(probe(Path(rest[0]))))
+        return 0
+    if cmd == "rasterize":
+        svg, png = ARTIFACTS / rest[0], ARTIFACTS / rest[1]
+        width, height = (int(rest[2]), int(rest[3])) if len(rest) >= 4 else (1080, 1920)
+        with (ARTIFACTS / "rasterize.log").open("a", encoding="utf-8") as log:
+            try:
+                rasterize(svg, png, width, height, log)
+            except Exception as exc:  # noqa: BLE001
+                log.write(f"ERROR: {exc}\n")
+                print(f"ERROR: {exc}", file=sys.stderr)
+                return 1
         return 0
     # Same names the API appends to, so each step has exactly one log + sidecar.
     log_path = ARTIFACTS / {"render": "07-render.log", "frames": "07-frames.log", "publish": "08-publish.log"}.get(cmd, f"{cmd}.log")

@@ -9,8 +9,9 @@ storyboard and assets. The API runs the renderer; you never do.
   `artifacts/05-captions.json` and `artifacts/05-cards.json`.
 - For `ffmpeg`: writes `artifacts/07-render/plan.json` — width/height
   from the format (9:16 → 1080×1920), fps 30, one shot per storyboard
-  shot with `text`, `duration`, and `color` (or `image` when an image
-  asset exists), plus `audio` when a voice asset exists.
+  shot with `text`, `duration`, and `color` (or `svg` when the asset-maker
+  drew the shot as `05-shot-NN.svg`, or `image` for a PNG/JPEG asset),
+  plus `audio` when a voice asset exists.
 - For `remotion` or `manim`: writes the composition or scene under
   `artifacts/07-render/` as that renderer's contract describes.
 - Sidecar `07-render.json` for the folder (kind `render-input`,

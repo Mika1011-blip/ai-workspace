@@ -18,8 +18,9 @@ Turns an approved script into a shot-by-shot storyboard.
 ## What it must not do
 - Never change the script's words; captions are verbatim.
 - Never write outside `artifacts/`.
-- Never plan an asset the asset-maker cannot make: without an image or
-  voice tool granted, shots are colour cards with captions.
+- Never plan an asset the asset-maker cannot make: images are always
+  possible (it draws them as SVG), voice and music only when a tool for
+  them has been granted; otherwise the shot is silent.
 
 ## Output format
 - The storyboard folder, its sidecar; the `report_result` summary only.
