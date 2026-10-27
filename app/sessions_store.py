@@ -91,6 +91,17 @@ def get_session(db_path: Path, session_id: str) -> dict | None:
     return None if row is None else _row_to_dict(row)
 
 
+def get_by_token_hash(db_path: Path, token_hash: str) -> dict | None:
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            f"SELECT {COLUMNS} FROM sessions WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return None if row is None else _row_to_dict(row)
+
+
 def mark_ended(db_path: Path, session_id: str, ended_at: str) -> None:
     conn = sqlite3.connect(db_path)
     try:

@@ -242,12 +242,12 @@ def test_delete_worker_raises_on_invalid_name(monkeypatch):
         ws.delete_worker("Bad Name")
 
 
-def test_spawn_session_posts_worker_and_task(monkeypatch):
+def test_spawn_session_posts_worker_and_task_with_token(monkeypatch):
     calls = []
-    monkeypatch.setattr(ws, "SESSION_ID", "caller-1")
+    monkeypatch.setattr(ws, "SESSION_TOKEN", "tok-1")
 
-    def fake_post(url, json):
-        calls.append((url, json))
+    def fake_post(url, json, headers):
+        calls.append((url, json, headers))
         return FakeResponse(201, {"session_id": "sess-1", "worker": "researcher", "status": "live"})
 
     monkeypatch.setattr(ws.httpx, "post", fake_post)
@@ -257,55 +257,45 @@ def test_spawn_session_posts_worker_and_task(monkeypatch):
     assert calls == [
         (
             f"{ws.API_BASE_URL}/sessions",
-            {"worker": "researcher", "task": "find today's news", "spawned_by": "caller-1"},
+            {"worker": "researcher", "task": "find today's news"},
+            {"X-Session-Token": "tok-1"},
         )
     ]
     assert result == {"session_id": "sess-1", "worker": "researcher", "status": "live"}
 
 
 def test_spawn_session_raises_on_unknown_worker(monkeypatch):
-    monkeypatch.setattr(ws.httpx, "post", lambda url, json: FakeResponse(404))
+    monkeypatch.setattr(ws.httpx, "post", lambda url, json, headers: FakeResponse(404))
 
     with pytest.raises(httpx.HTTPStatusError):
         ws.spawn_session("does-not-exist", "task")
 
 
-def test_list_sessions_gets_with_caller_and_token(monkeypatch):
+def test_list_sessions_gets_with_token_only(monkeypatch):
     calls = []
-    monkeypatch.setattr(ws, "SESSION_ID", "caller-1")
     monkeypatch.setattr(ws, "SESSION_TOKEN", "tok-1")
 
-    def fake_get(url, params, headers):
-        calls.append((url, params, headers))
+    def fake_get(url, headers):
+        calls.append((url, headers))
         return FakeResponse(200, [{"session_id": "caller-1"}])
 
     monkeypatch.setattr(ws.httpx, "get", fake_get)
 
     result = ws.list_sessions()
 
-    assert calls == [
-        (f"{ws.API_BASE_URL}/sessions", {"caller": "caller-1"}, {"X-Session-Token": "tok-1"})
-    ]
+    assert calls == [(f"{ws.API_BASE_URL}/sessions", {"X-Session-Token": "tok-1"})]
     assert result == [{"session_id": "caller-1"}]
 
 
-def test_list_sessions_raises_on_unknown_caller(monkeypatch):
-    monkeypatch.setattr(ws.httpx, "get", lambda url, params, headers: FakeResponse(404))
-
-    with pytest.raises(httpx.HTTPStatusError):
-        ws.list_sessions()
-
-
 def test_list_sessions_raises_on_bad_token(monkeypatch):
-    monkeypatch.setattr(ws.httpx, "get", lambda url, params, headers: FakeResponse(401))
+    monkeypatch.setattr(ws.httpx, "get", lambda url, headers: FakeResponse(401))
 
     with pytest.raises(httpx.HTTPStatusError):
         ws.list_sessions()
 
 
-def test_send_to_session_posts_message_with_token(monkeypatch):
+def test_send_to_session_posts_text_with_token(monkeypatch):
     calls = []
-    monkeypatch.setattr(ws, "SESSION_ID", "caller-1")
     monkeypatch.setattr(ws, "SESSION_TOKEN", "tok-1")
 
     def fake_post(url, json, headers):
@@ -317,18 +307,13 @@ def test_send_to_session_posts_message_with_token(monkeypatch):
     result = ws.send_to_session("sess-2", "hi")
 
     assert calls == [
-        (
-            f"{ws.API_BASE_URL}/sessions/sess-2/messages",
-            {"from": "caller-1", "text": "hi"},
-            {"X-Session-Token": "tok-1"},
-        )
+        (f"{ws.API_BASE_URL}/sessions/sess-2/messages", {"text": "hi"}, {"X-Session-Token": "tok-1"})
     ]
     assert result == {"accepted": True}
 
 
-def test_report_result_posts_own_session_with_token(monkeypatch):
+def test_report_result_posts_as_me_with_token(monkeypatch):
     calls = []
-    monkeypatch.setattr(ws, "SESSION_ID", "caller-1")
     monkeypatch.setattr(ws, "SESSION_TOKEN", "tok-1")
 
     def fake_post(url, json, headers):
@@ -341,7 +326,7 @@ def test_report_result_posts_own_session_with_token(monkeypatch):
 
     assert calls == [
         (
-            f"{ws.API_BASE_URL}/sessions/caller-1/result",
+            f"{ws.API_BASE_URL}/sessions/me/result",
             {
                 "status": "success",
                 "summary": "done",

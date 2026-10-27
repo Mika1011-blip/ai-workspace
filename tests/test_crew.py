@@ -19,7 +19,7 @@ class FakeRun:
         self.merged_branches = list(merged_branches)
         self.stop_fails = False
 
-    def __call__(self, argv, cwd=None, capture_output=True, text=True, check=True):
+    def __call__(self, argv, cwd=None, capture_output=True, check=True, **kwargs):
         self.calls.append((argv, cwd))
         out = ""
         if argv[:3] == ["git", "worktree", "add"]:
@@ -29,8 +29,9 @@ class FakeRun:
         elif argv[:2] == ["git", "branch"] and "--merged" in argv:
             out = "\n".join(self.merged_branches)
         elif argv[1:2] == ["--bg"]:
-            session_uuid = argv[argv.index("--session-id") + 1]
-            out = f"backgrounded · {session_uuid[:8]} · {argv[argv.index('--name') + 1]}\n"
+            # Like the real CLI: it picks the id itself.
+            sid = f"{len(self.calls):08x}"
+            out = f"backgrounded · {sid} · {argv[argv.index('--name') + 1]}\n"
         elif argv[1:2] == ["stop"]:
             if self.stop_fails:
                 raise subprocess.CalledProcessError(1, argv, stderr="no such session")
@@ -75,8 +76,9 @@ class TestSpawn:
 
         sid = out["session_id"]
         assert len(sid) == 8
-        assert out["branch"] == f"work/ping-tester-{sid}"
-        assert Path(out["worktree"]) == root / ".claude" / "worktrees" / f"ping-tester-{sid}"
+        tag = out["branch"].removeprefix("work/ping-tester-")
+        assert len(tag) == 6 and tag != sid  # tag chosen before launch; id by the CLI after
+        assert Path(out["worktree"]) == root / ".claude" / "worktrees" / f"ping-tester-{tag}"
         assert Path(out["worktree"]).is_dir()
 
         wt_add = next(c for c in run.calls if c[0][:3] == ["git", "worktree", "add"])
@@ -87,14 +89,14 @@ class TestSpawn:
         assert cwd == out["worktree"]
         assert argv[argv.index("--permission-mode") + 1] == "bypassPermissions"
         assert "--strict-mcp-config" in argv
-        assert argv[argv.index("--session-id") + 1].startswith(sid)
+        assert "--session-id" not in argv
         assert argv[argv.index("--name") + 1] == "ping-tester"
         assert ".claude/crew/roles/ping-tester.md" in argv[-1] and "reply pong" in argv[-1]
         assert str(root / ".claude" / "crew" / "registry.json") in argv[-1]
 
         (entry,) = registry(root)
         assert entry["session_id"] == sid and entry["status"] == "live"
-        assert entry["worktree"] == f".claude/worktrees/ping-tester-{sid}" and entry["branch"] == out["branch"]
+        assert entry["worktree"] == f".claude/worktrees/ping-tester-{tag}" and entry["branch"] == out["branch"]
         assert entry["may_talk_to"] == ["lead"]
 
         (rec,) = records(root, "ping-tester")

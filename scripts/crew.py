@@ -13,10 +13,10 @@ docs/run-record.md under .claude/crew/runs/<role>/.
 
 import argparse
 import json
+import secrets
 import shutil
 import subprocess
 import sys
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -66,7 +66,10 @@ class Crew:
     # -- helpers -------------------------------------------------------------
 
     def sh(self, argv: list[str], cwd: Path | None = None, check: bool = True) -> str:
-        result = self.run(argv, cwd=str(cwd or self.root), capture_output=True, text=True, check=check)
+        result = self.run(
+            argv, cwd=str(cwd or self.root), capture_output=True,
+            encoding="utf-8", errors="replace", check=check,
+        )
         return result.stdout
 
     def load_registry(self) -> list[dict]:
@@ -97,35 +100,35 @@ class Crew:
         brief = self.roles / f"{role}.md"
         if not brief.is_file():
             raise CrewError(f"no brief at {brief.relative_to(self.root).as_posix()} -- ask the lead for it first")
-        session_uuid = str(uuid.uuid4())
-        sid = session_uuid[:8]
-        branch = f"work/{role}-{sid}"
-        worktree = self.worktrees / f"{role}-{sid}"
+        # The worktree must exist before the session starts in it, but Claude
+        # Code assigns the session id itself (it ignores --session-id), so the
+        # branch and folder carry a short random tag instead; the id is
+        # recorded next to it once known.
+        tag = secrets.token_hex(3)
+        branch = f"work/{role}-{tag}"
+        worktree = self.worktrees / f"{role}-{tag}"
         self.worktrees.mkdir(parents=True, exist_ok=True)
         self.sh(["git", "worktree", "add", "-b", branch, str(worktree), "main"])
 
         prompt = (
             f"Read .claude/crew/roles/{role}.md and .claude/crew/COMMS.md, then: {task}\n"
-            f"You are session {sid} on branch {branch} in worktree {worktree}. "
+            f"You are on branch {branch} in worktree {worktree}. "
             f"The crew registry is {self.registry_path} (read it right before every send). "
             "When done, open a PR from your branch and message the lead."
         )
-        printed = parse_spawned_id(
+        sid = parse_spawned_id(
             self.sh(
                 [
                     claude_cli(),
                     "--bg",
                     "--permission-mode", LEAD_PERMISSION_MODE,
                     "--strict-mcp-config",  # no .mcp.json servers -> no approval prompt to hang on
-                    "--session-id", session_uuid,
                     "--name", role,
                     prompt,
                 ],
                 cwd=worktree,
             )
         )
-        if printed != sid:
-            raise CrewError(f"claude started {printed!r}, expected {sid!r}")
 
         started = self.now()
         entries = self.load_registry()

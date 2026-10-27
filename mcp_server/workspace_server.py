@@ -10,9 +10,9 @@ import httpx
 from fastmcp import FastMCP
 
 API_BASE_URL = os.environ.get("WORKSPACE_API_URL", "http://localhost:8000")
-# Both are set by the API when it spawns this session; the token is the
-# proof that `SESSION_ID` is really us, sent on every call that acts as us.
-SESSION_ID = os.environ.get("SESSION_ID", "")
+# Set by the API when it spawns this session. The token *is* this session's
+# identity: the API resolves who is calling from it, so these tools never
+# need to know their own session id.
 SESSION_TOKEN = os.environ.get("SESSION_TOKEN", "")
 
 
@@ -150,13 +150,13 @@ def spawn_session(worker: str, task: str) -> dict:
     """Spawn a new background session for an existing worker.
 
     `worker` must match `^[a-z0-9-]{1,40}$` and must already exist. Calls
-    POST /sessions with `{"worker": worker, "task": task, "spawned_by":
-    SESSION_ID}` and returns the new session's id, worker, and status.
-    Raises an error if the worker does not exist or the name is invalid.
+    POST /sessions with `{"worker": worker, "task": task}` and this
+    session's token, so the API records this session as the spawner.
+    Returns the new session's id, worker, and status. Raises an error if
+    the worker does not exist or the name is invalid.
     """
     response = httpx.post(
-        f"{API_BASE_URL}/sessions",
-        json={"worker": worker, "task": task, "spawned_by": SESSION_ID},
+        f"{API_BASE_URL}/sessions", json={"worker": worker, "task": task}, headers=_auth()
     )
     response.raise_for_status()
     return response.json()
@@ -166,14 +166,11 @@ def spawn_session(worker: str, task: str) -> dict:
 def list_sessions() -> list[dict]:
     """List every session this one may reach.
 
-    Calls GET /sessions?caller=<this session's id> with this session's
-    token and returns itself plus every session in its own `may_talk_to`
-    list. Raises an error if this session isn't registered or the token
-    doesn't match.
+    Calls GET /sessions with this session's token and returns itself plus
+    every session in its own `may_talk_to` list. Raises an error if the
+    token isn't recognised.
     """
-    response = httpx.get(
-        f"{API_BASE_URL}/sessions", params={"caller": SESSION_ID}, headers=_auth()
-    )
+    response = httpx.get(f"{API_BASE_URL}/sessions", headers=_auth())
     response.raise_for_status()
     return response.json()
 
@@ -182,17 +179,15 @@ def list_sessions() -> list[dict]:
 def send_to_session(session_id: str, text: str) -> dict:
     """Send a message to another session.
 
-    Calls POST /sessions/{session_id}/messages with `{"from":
-    SESSION_ID, "text": text}` and this session's token. Returns
+    Calls POST /sessions/{session_id}/messages with `{"text": text}` and
+    this session's token, which tells the API who the sender is. Returns
     `{"accepted": true}` -- the API has checked and logged the message,
     but does not yet forward it into the target session. Raises an error
-    if either session is unknown or ended, if the token doesn't match, or
-    if this session isn't allowed to message the target.
+    if either session is unknown or ended, if the token isn't recognised,
+    or if this session isn't allowed to message the target.
     """
     response = httpx.post(
-        f"{API_BASE_URL}/sessions/{session_id}/messages",
-        json={"from": SESSION_ID, "text": text},
-        headers=_auth(),
+        f"{API_BASE_URL}/sessions/{session_id}/messages", json={"text": text}, headers=_auth()
     )
     response.raise_for_status()
     return response.json()
@@ -212,12 +207,12 @@ def report_result(
     `summary` is a short plain-text result. `tags` are extra `key:value`
     tags from the fixed list (scope:research|code|docs|ops, topic:<slug>,
     severity:info|warn|error). `metrics` may carry `turns` and `cost_usd`.
-    Calls POST /sessions/<this session>/result with this session's token
-    and returns the updated run record. Raises an error on an unknown
-    status or tag.
+    Calls POST /sessions/me/result with this session's token (the API
+    knows which session "me" is from it) and returns the updated run
+    record. Raises an error on an unknown status or tag.
     """
     response = httpx.post(
-        f"{API_BASE_URL}/sessions/{SESSION_ID}/result",
+        f"{API_BASE_URL}/sessions/me/result",
         json={
             "status": status,
             "summary": summary,
