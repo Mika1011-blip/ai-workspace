@@ -43,14 +43,14 @@ Workers **read** the registry, never write it. Only the manager adds or ends ent
 - `status`: `live` → `ended`. An id is never reused. Ended entries stay for history.
 
 ## 3. Lifecycle
-1. **Spawn.** The lead runs `claude --bg --name build-wizard "Read .claude/crew/build-wizard.md and COMMS.md, then: …"`. Claude Code prints `backgrounded · 7c5dcf5d · build-wizard`.
+1. **Spawn.** The lead runs `claude --bg --name build-wizard "Read .claude/crew/roles/build-wizard.md and .claude/crew/COMMS.md, then: …"`. Claude Code prints `backgrounded · 7c5dcf5d · build-wizard`.
 2. **Register.** The lead writes the entry with id `7c5dcf5d`.
 3. **Talk.** Before sending, the sender reads the registry, picks the entry by role, checks `status: live` and `may_talk_to`, then sends to the id.
 4. **End.** When the worker's PR is merged, the lead stops it (`claude stop 7c5dcf5d`) and sets `status: ended`.
 
 ## 4. Moving to another machine or environment
 Session ids belong to one machine. They don't travel.
-- Committed: `COMMS.md`, the role briefs (`.claude/crew/<role>.md`), the agents' folders. Everything needed to rebuild.
+- Committed: `COMMS.md`, the role briefs (`.claude/crew/roles/<role>.md`), the agents' folders. Everything needed to rebuild.
 - Not committed: `registry.json`.
 - On a new machine, the lead starts with **"rebuild the registry"**: mark every old entry `ended`, spawn the roles still needed, write the new ids. In the app, the API does the same at startup.
 
