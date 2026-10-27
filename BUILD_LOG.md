@@ -92,3 +92,4 @@
 - 2026-10-27 20:16:53 — commit 68289ff Delete of a held worker is 409, and no ghost folders after deletion
 - 2026-10-27 20:21:39 — commit 916ae2b Projects: folder, manifest, artifact sidecars, index, API, export
 - 2026-10-27 20:26:44 — commit d18e318 Pipeline state machine: stages, review gates, one revision, auto mode
+- 2026-10-27 20:28:20 — commit af20399 Fix the grants activity-log test for resolved paths
