@@ -143,9 +143,41 @@ def init_table(db_path: Path) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS stage_sessions (
+                session_id TEXT PRIMARY KEY,
+                slug TEXT NOT NULL,
+                stage TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
     finally:
         conn.close()
+
+
+def map_stage_session(db_path: Path, session_id: str, slug: str, stage: str) -> None:
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO stage_sessions (session_id, slug, stage) VALUES (?, ?, ?)",
+            (session_id, slug, stage),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def stage_for_session(db_path: Path, session_id: str) -> tuple[str, str] | None:
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT slug, stage FROM stage_sessions WHERE session_id = ?", (session_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return None if row is None else (row[0], row[1])
 
 
 def upsert(db_path: Path, manifest: dict, project_dir: Path) -> None:

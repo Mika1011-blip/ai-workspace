@@ -91,3 +91,4 @@
 - 2026-10-27 20:13:27 — commit 2d0bf4f Switch off the background worktree guard for app sessions
 - 2026-10-27 20:16:53 — commit 68289ff Delete of a held worker is 409, and no ghost folders after deletion
 - 2026-10-27 20:21:39 — commit 916ae2b Projects: folder, manifest, artifact sidecars, index, API, export
+- 2026-10-27 20:26:44 — commit d18e318 Pipeline state machine: stages, review gates, one revision, auto mode

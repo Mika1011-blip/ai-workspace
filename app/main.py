@@ -16,7 +16,7 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app import activity, projects, run_records, sessions_store
+from app import activity, pipeline, projects, run_records, sessions_store
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -398,6 +398,7 @@ def create_app(
                 now = datetime.now(timezone.utc)
                 for sid in sessions_store.reconcile(sessions_db_path, ids, now.isoformat()):
                     record = finalize_run(sid, now, "failed", "process gone before reporting a result")
+                    studio.on_session_failed(sid, "process gone before reporting a result")
                     entry = sessions_store.get_session(sessions_db_path, sid)
                     if entry is not None:
                         activity.log(
@@ -538,6 +539,72 @@ def create_app(
         (skill_dir / "SKILL.md").write_text(body.content, encoding="utf-8")
         return Skill(name=body.skill_name, content=body.content)
 
+    def start_session(
+        worker: str,
+        task: str,
+        trigger: str = "manual",
+        tags: list[str] = (),
+        tools: list[str] = (),
+        read_from: list[Path] = (),
+        write_to: list[Path] = (),
+        spawned_by: str | None = None,
+        may_talk_to: list[str] = (),
+    ) -> dict:
+        """Spawn one locked-down app session and open its books. Shared by the
+        endpoint and the pipeline; inputs are already validated/resolved."""
+        if not spawn_enabled:
+            raise HTTPException(status_code=503, detail="spawning_disabled")
+        worker_folder = workers_path / worker
+        if not (worker_folder / "CLAUDE.md").is_file():
+            raise HTTPException(status_code=404, detail=f"Worker '{worker}' not found")
+        token = secrets.token_urlsafe(32)
+        shared_dir.mkdir(exist_ok=True)
+        write_lockdown_settings(worker_folder, shared_dir)
+        argv = spawn_argv(
+            worker, task, token, shared_dir, api_url,
+            tools=list(tools), read_from=list(read_from), write_to=list(write_to),
+        )
+        # Claude Code assigns the id itself and prints it; it is only known now.
+        session_id = parse_spawned_id(spawn(argv, worker_folder))
+        now = datetime.now(timezone.utc)
+        started_at = now.isoformat()
+        sessions_store.insert_session(
+            sessions_db_path, session_id, worker, spawned_by, started_at, list(may_talk_to), hash_token(token)
+        )
+        record = run_records.new_record(
+            worker, session_id, trigger, list(tags), now,
+            (worker_folder / "CLAUDE.md").read_text(encoding="utf-8"),
+        )
+        path = run_records.write_record(workers_path, record)
+        run_records.upsert(sessions_db_path, record, path)
+        activity.log(
+            workers_path,
+            worker,
+            "spawned",
+            {
+                "session_id": session_id,
+                "run_id": record["run_id"],
+                "trigger": trigger,
+                "spawned_by": spawned_by,
+                "task": task,
+                "tools": list(tools),
+                "read_from": [str(p) for p in read_from],
+                "write_to": [str(p) for p in write_to],
+            },
+        )
+        return {
+            "session_id": session_id,
+            "worker": worker,
+            "status": "live",
+            "spawned_by": spawned_by,
+            "started_at": started_at,
+            "ended_at": None,
+            "may_talk_to": list(may_talk_to),
+            "run_id": record["run_id"],
+        }
+
+    studio = pipeline.Pipeline(projects_path, sessions_db_path, workers_path, start_session)
+
     @app.post("/sessions", status_code=201)
     def spawn_session(
         body: SessionCreate, x_session_token: str | None = Header(default=None)
@@ -545,8 +612,7 @@ def create_app(
         if not spawn_enabled:
             raise HTTPException(status_code=503, detail="spawning_disabled")
         validate_name(body.worker)
-        worker_folder = workers_path / body.worker
-        if not (worker_folder / "CLAUDE.md").is_file():
+        if not (workers_path / body.worker / "CLAUDE.md").is_file():
             raise HTTPException(status_code=404, detail=f"Worker '{body.worker}' not found")
         if body.trigger not in run_records.TRIGGERS:
             raise HTTPException(status_code=400, detail="bad_trigger")
@@ -564,60 +630,11 @@ def create_app(
         if spawned_by is None:
             spawner = authenticate(sessions_db_path, x_session_token)
             spawned_by = spawner["session_id"] if spawner else None
-        token = secrets.token_urlsafe(32)
-        shared_dir.mkdir(exist_ok=True)
-        write_lockdown_settings(worker_folder, shared_dir)
-        argv = spawn_argv(
-            body.worker, body.task, token, shared_dir, api_url,
-            tools=body.tools, read_from=read_from, write_to=write_to,
-        )
-        # Claude Code assigns the id itself and prints it; it is only known now.
-        session_id = parse_spawned_id(spawn(argv, worker_folder))
-        now = datetime.now(timezone.utc)
-        started_at = now.isoformat()
-        sessions_store.insert_session(
-            sessions_db_path,
-            session_id,
-            body.worker,
-            spawned_by,
-            started_at,
-            body.may_talk_to,
-            hash_token(token),
-        )
-        record = run_records.new_record(
-            body.worker,
-            session_id,
-            body.trigger,
-            body.tags,
-            now,
-            (worker_folder / "CLAUDE.md").read_text(encoding="utf-8"),
-        )
-        path = run_records.write_record(workers_path, record)
-        run_records.upsert(sessions_db_path, record, path)
-        activity.log(
-            workers_path,
-            body.worker,
-            "spawned",
-            {
-                "session_id": session_id,
-                "run_id": record["run_id"],
-                "trigger": body.trigger,
-                "spawned_by": spawned_by,
-                "task": body.task,
-                "tools": body.tools,
-                "read_from": body.read_from,
-                "write_to": body.write_to,
-            },
-        )
         return Session(
-            session_id=session_id,
-            worker=body.worker,
-            status="live",
-            spawned_by=spawned_by,
-            started_at=started_at,
-            ended_at=None,
-            may_talk_to=body.may_talk_to,
-            run_id=record["run_id"],
+            **start_session(
+                body.worker, body.task, body.trigger, body.tags, body.tools,
+                read_from, write_to, spawned_by, body.may_talk_to,
+            )
         )
 
     @app.post("/sessions/{session_id}/result")
@@ -662,7 +679,17 @@ def create_app(
             "result_reported",
             {"session_id": session_id, "run_id": record["run_id"], "status": body.status},
         )
+        # If this session was a pipeline stage, the project moves on.
+        studio.on_report(session_id, body.status, body.summary)
         return record
+
+    @app.post("/projects/{slug}/start")
+    def start_project(slug: str) -> dict:
+        validate_name(slug)
+        try:
+            return studio.start(slug)
+        except pipeline.PipelineError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
     @app.get("/workers/{name}/activity")
     def worker_activity(name: str, limit: int = 100) -> list[dict]:
@@ -858,6 +885,7 @@ def create_app(
         ended_at = now.isoformat()
         sessions_store.mark_ended(sessions_db_path, session_id, ended_at)
         record = finalize_run(session_id, now, "failed", "ended before reporting a result")
+        studio.on_session_failed(session_id, "session ended before reporting a result")
         activity.log(
             workers_path,
             entry["worker"],

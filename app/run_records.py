@@ -40,7 +40,7 @@ def validate_tags(tags: list[str]) -> list[str]:
         key, sep, value = tag.partition(":")
         if not sep or not key or not value:
             raise BadTag(f"{tag!r} is not key:value")
-        if key == "worker" or key == "topic":
+        if key in ("worker", "topic", "project"):
             if not TOPIC_RE.fullmatch(value):
                 raise BadTag(f"{tag!r}: value must match {TOPIC_RE.pattern}")
         elif key in TAG_VALUES:
