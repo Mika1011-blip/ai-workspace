@@ -47,8 +47,18 @@ def agents_dir(tmp_path):
 
 
 @pytest.fixture
-def client(agents_dir):
-    return TestClient(create_app(agents_dir))
+def templates_dir(tmp_path):
+    return tmp_path / "agent_templates"
+
+
+@pytest.fixture
+def client(agents_dir, templates_dir):
+    return TestClient(create_app(agents_dir, templates_dir))
+
+
+def write_template(templates_dir, name, description, body):
+    templates_dir.mkdir(parents=True, exist_ok=True)
+    (templates_dir / f"{name}.md").write_text(f"---\ndescription: {description}\n---\n{body}", encoding="utf-8")
 
 
 def create(client, name):
@@ -408,3 +418,152 @@ class TestUpdateAgent:
 
         assert res.status_code == 404
         assert not (folder / "CLAUDE.md").is_file()
+
+
+class TestListTemplates:
+    def test_empty_when_no_templates_dir(self, client):
+        res = client.get("/templates")
+
+        assert res.status_code == 200
+        assert res.json() == []
+
+    def test_lists_templates_sorted_by_name_with_description(self, client, templates_dir):
+        write_template(templates_dir, "writer", "Writes prose", "# writer\n")
+        write_template(templates_dir, "researcher", "Does research", "# researcher\n")
+
+        res = client.get("/templates")
+
+        assert res.status_code == 200
+        assert res.json() == [
+            {"name": "researcher", "description": "Does research"},
+            {"name": "writer", "description": "Writes prose"},
+        ]
+
+    def test_ignores_non_markdown_files(self, client, templates_dir):
+        write_template(templates_dir, "researcher", "Does research", "# researcher\n")
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        (templates_dir / "notes.txt").write_text("not a template", encoding="utf-8")
+
+        res = client.get("/templates")
+
+        assert res.status_code == 200
+        assert [t["name"] for t in res.json()] == ["researcher"]
+
+    def test_missing_frontmatter_falls_back_to_empty_description(self, client, templates_dir):
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        (templates_dir / "plain.md").write_text("# plain\n\nNo frontmatter here.\n", encoding="utf-8")
+
+        res = client.get("/templates")
+
+        assert res.status_code == 200
+        assert res.json() == [{"name": "plain", "description": ""}]
+
+    def test_non_utf8_file_is_skipped_not_500(self, client, templates_dir):
+        write_template(templates_dir, "researcher", "Does research", "# researcher\n")
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        (templates_dir / "broken.md").write_bytes(b"\xff\xfe not valid utf-8")
+
+        res = client.get("/templates")
+
+        assert res.status_code == 200
+        assert [t["name"] for t in res.json()] == ["researcher"]
+
+
+class TestGetTemplate:
+    def test_returns_body_without_frontmatter(self, client, templates_dir):
+        write_template(templates_dir, "researcher", "Does research", "# researcher\n\nBody text.\n")
+
+        res = client.get("/templates/researcher")
+
+        assert res.status_code == 200
+        assert res.json() == {"content": "# researcher\n\nBody text.\n"}
+
+    def test_missing_template_is_404(self, client):
+        res = client.get("/templates/nope")
+
+        assert res.status_code == 404
+
+    def test_non_utf8_file_is_404_not_500(self, client, templates_dir):
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        (templates_dir / "broken.md").write_bytes(b"\xff\xfe not valid utf-8")
+
+        res = client.get("/templates/broken")
+
+        assert res.status_code == 404
+
+    @pytest.mark.parametrize("name", PATH_INVALID_NAMES)
+    def test_bad_name_is_refused(self, client, name):
+        res = client.get(f"/templates/{name}")
+
+        assert res.status_code == 400
+
+    @pytest.mark.parametrize("name", NEWLY_VALID_NAMES)
+    def test_leading_or_double_dash_name_is_accepted(self, client, templates_dir, name):
+        write_template(templates_dir, name, "d", "body\n")
+
+        res = client.get(f"/templates/{name}")
+
+        assert res.status_code == 200
+        assert res.json() == {"content": "body\n"}
+
+    def test_path_traversal_name_cannot_escape_templates_dir(self, client, templates_dir, tmp_path):
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        secret = tmp_path / "secret.md"
+        secret.write_text("top secret", encoding="utf-8")
+
+        res = client.get("/templates/..%2Fsecret")
+
+        assert res.status_code in (400, 404)
+
+
+class TestWriteSkill:
+    def test_writes_skill_md_under_agent(self, client, agents_dir):
+        create(client, "researcher")
+
+        res = client.post(
+            "/agents/researcher/skills",
+            json={"skill_name": "web-search", "content": "# web-search\n\nHow to search.\n"},
+        )
+
+        assert res.status_code == 201
+        skill_md = agents_dir / "researcher" / ".claude" / "skills" / "web-search" / "SKILL.md"
+        assert skill_md.is_file()
+        assert skill_md.read_text(encoding="utf-8") == "# web-search\n\nHow to search.\n"
+        assert res.json() == {"name": "web-search", "content": "# web-search\n\nHow to search.\n"}
+
+    def test_missing_agent_is_404(self, client, agents_dir):
+        res = client.post("/agents/nope/skills", json={"skill_name": "web-search", "content": "x"})
+
+        assert res.status_code == 404
+        assert not (agents_dir / "nope").exists()
+
+    @pytest.mark.parametrize("name", PATH_INVALID_NAMES)
+    def test_bad_agent_name_is_refused(self, client, name):
+        res = client.post(f"/agents/{name}/skills", json={"skill_name": "web-search", "content": "x"})
+
+        assert res.status_code == 400
+
+    @pytest.mark.parametrize("skill_name", BODY_INVALID_NAMES)
+    def test_bad_skill_name_is_refused(self, client, agents_dir, skill_name):
+        create(client, "researcher")
+
+        res = client.post("/agents/researcher/skills", json={"skill_name": skill_name, "content": "x"})
+
+        assert res.status_code == 400
+        assert not (agents_dir / "researcher" / ".claude" / "skills").exists()
+
+    def test_missing_skill_name_field_is_refused(self, client, agents_dir):
+        create(client, "researcher")
+
+        res = client.post("/agents/researcher/skills", json={"content": "x"})
+
+        assert res.status_code == 422
+
+    def test_creates_parent_dirs(self, client, agents_dir):
+        create(client, "researcher")
+        assert not (agents_dir / "researcher" / ".claude").exists()
+
+        res = client.post("/agents/researcher/skills", json={"skill_name": "web-search", "content": "x"})
+
+        assert res.status_code == 201
+        assert (agents_dir / "researcher" / ".claude" / "skills" / "web-search" / "SKILL.md").is_file()
