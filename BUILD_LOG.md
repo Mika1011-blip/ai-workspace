@@ -109,3 +109,4 @@
 - 2026-10-27 22:07:14 — commit cc4bdef Write deny rules in the form Claude Code matches on Windows
 - 2026-10-27 22:16:27 — commit ecfd86b Run app workers on the Claude Agent SDK
 - 2026-10-27 22:27:33 — commit c1237d4 Stream session state changes as server-sent events
+- 2026-10-27 22:38:00 — commit a42037d Zip download of a whole project from the gallery
