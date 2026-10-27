@@ -1136,43 +1136,67 @@ def create_app(
     def send_message(
         body: MessageCreate, session_id: str, x_session_token: str | None = Header(default=None)
     ) -> dict:
-        # The token says who the sender is; `from`, if given, must agree.
-        if body.from_ is None:
-            sender = authenticate(sessions_db_path, x_session_token)
-            if sender is None:
-                raise HTTPException(status_code=401, detail="bad_token")
-        else:
-            sender = sessions_store.get_session(sessions_db_path, body.from_)
+        x_session_token = x_session_token or None
         target = sessions_store.get_session(sessions_db_path, session_id)
-        if sender is None or target is None:
+        if target is None:
             raise HTTPException(status_code=404, detail="unknown_session")
-        sender_id = sender["session_id"]
+        # No token and no `from` = the host (you, at the API or the lead's
+        # MCP): it owns every session and may talk to any of them. Otherwise
+        # the token says who the sender is; `from`, if given, must agree.
+        if body.from_ is None and x_session_token is None:
+            sender, sender_id = None, "host"
+        else:
+            if body.from_ is None:
+                sender = authenticate(sessions_db_path, x_session_token)
+                if sender is None:
+                    raise HTTPException(status_code=401, detail="bad_token")
+            else:
+                sender = sessions_store.get_session(sessions_db_path, body.from_)
+                if sender is None:
+                    raise HTTPException(status_code=404, detail="unknown_session")
+            sender_id = sender["session_id"]
 
         def outcome(name: str) -> None:
             # Global audit log plus both workers' own timelines, refusals included.
             log_message(sender_id, session_id, name)
-            activity.log(workers_path, sender["worker"], "message_out", {"to": session_id, "outcome": name})
+            if sender is not None:
+                activity.log(workers_path, sender["worker"], "message_out", {"to": session_id, "outcome": name})
             activity.log(workers_path, target["worker"], "message_in", {"from": sender_id, "outcome": name})
 
-        if not token_matches(sender, x_session_token):
-            outcome("bad_token")
-            raise HTTPException(status_code=401, detail="bad_token")
-        if sender["status"] != "live" or target["status"] != "live":
+        if sender is not None:
+            if not token_matches(sender, x_session_token):
+                outcome("bad_token")
+                raise HTTPException(status_code=401, detail="bad_token")
+            if sender["status"] != "live":
+                outcome("session_ended")
+                raise HTTPException(status_code=409, detail="session_ended")
+            if sender_id not in target["may_talk_to"]:
+                outcome("not_allowed")
+                raise HTTPException(status_code=403, detail="not_allowed")
+        if target["status"] != "live":
             outcome("session_ended")
             raise HTTPException(status_code=409, detail="session_ended")
-        if sender_id not in target["may_talk_to"]:
-            outcome("not_allowed")
-            raise HTTPException(status_code=403, detail="not_allowed")
-        # Accepted and logged only: forwarding into the target session is
-        # not implemented yet, so this must not claim delivery.
-        outcome("accepted")
-        return {"accepted": True}
+        # Delivered = handed to the running session as its next turn. The CLI
+        # runner cannot do that; its messages are accepted and logged only.
+        label = "the host" if sender is None else f"session {sender_id} ({sender['worker']})"
+        delivered = runner.send(session_id, f"Message from {label}: {body.text}")
+        outcome("delivered" if delivered else "accepted")
+        return {"accepted": True, "delivered": delivered}
 
     @app.post("/sessions/{session_id}/end")
-    def end_session(session_id: str) -> Session:
+    def end_session(session_id: str, x_session_token: str | None = Header(default=None)) -> Session:
         entry = sessions_store.get_session(sessions_db_path, session_id)
         if entry is None:
             raise HTTPException(status_code=404, detail="unknown_session")
+        # The host (no token) may end anything; a session may end itself or
+        # a session it spawned, nothing else.
+        x_session_token = x_session_token or None
+        if x_session_token is not None:
+            caller = authenticate(sessions_db_path, x_session_token)
+            if caller is None:
+                raise HTTPException(status_code=401, detail="bad_token")
+            if caller["session_id"] not in (session_id, entry["spawned_by"]):
+                raise HTTPException(status_code=403, detail="not_allowed")
         if entry["status"] != "live":
             raise HTTPException(status_code=409, detail="session_ended")
         if spawn_enabled:

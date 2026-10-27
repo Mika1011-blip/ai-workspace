@@ -17,7 +17,9 @@ SESSION_TOKEN = os.environ.get("SESSION_TOKEN", "")
 
 
 def _auth() -> dict:
-    return {"X-Session-Token": SESSION_TOKEN}
+    # No token (the lead's or your own MCP) = the host; the API treats a
+    # missing header, not an empty one, as "the host is calling".
+    return {"X-Session-Token": SESSION_TOKEN} if SESSION_TOKEN else {}
 
 # One name everywhere -- root .mcp.json, app-master's .mcp.json, the API's
 # --mcp-config, and the mcp__ai-workspace__* prefix in every allow list.
@@ -180,11 +182,14 @@ def send_to_session(session_id: str, text: str) -> dict:
     """Send a message to another session.
 
     Calls POST /sessions/{session_id}/messages with `{"text": text}` and
-    this session's token, which tells the API who the sender is. Returns
-    `{"accepted": true}` -- the API has checked and logged the message,
-    but does not yet forward it into the target session. Raises an error
-    if either session is unknown or ended, if the token isn't recognised,
-    or if this session isn't allowed to message the target.
+    this session's token, which tells the API who the sender is (no token
+    = the host, who may message any session). Returns `{"accepted": true,
+    "delivered": bool}`: delivered means the text was handed to the
+    running session as its next turn, prefixed with who sent it; false
+    means the session's runner cannot take messages (it was logged only).
+    Raises an error if either session is unknown or ended, if the token
+    isn't recognised, or if this session isn't allowed to message the
+    target.
     """
     response = httpx.post(
         f"{API_BASE_URL}/sessions/{session_id}/messages", json={"text": text}, headers=_auth()
@@ -231,10 +236,11 @@ def end_session(session_id: str) -> dict:
     """End a session: stop its process and mark it ended in the registry.
 
     Calls POST /sessions/{session_id}/end and returns the closed entry.
-    Raises an error if the session is unknown or already ended. Ended ids
-    are never reused.
+    The host may end any session; a session may end only itself or one it
+    spawned (403 otherwise). Raises an error if the session is unknown or
+    already ended. Ended ids are never reused.
     """
-    response = httpx.post(f"{API_BASE_URL}/sessions/{session_id}/end")
+    response = httpx.post(f"{API_BASE_URL}/sessions/{session_id}/end", headers=_auth())
     response.raise_for_status()
     return response.json()
 

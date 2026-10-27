@@ -350,20 +350,22 @@ def test_report_result_raises_on_bad_status(monkeypatch):
 def test_end_session_posts_to_end_endpoint(monkeypatch):
     calls = []
 
-    def fake_post(url):
-        calls.append(url)
+    def fake_post(url, headers=None):
+        calls.append((url, headers))
         return FakeResponse(200, {"session_id": "sess-2", "status": "ended"})
 
     monkeypatch.setattr(ws.httpx, "post", fake_post)
+    monkeypatch.setattr(ws, "SESSION_TOKEN", "")
 
     result = ws.end_session("sess-2")
 
-    assert calls == [f"{ws.API_BASE_URL}/sessions/sess-2/end"]
+    # No token = the host is calling; the header is left out entirely.
+    assert calls == [(f"{ws.API_BASE_URL}/sessions/sess-2/end", {})]
     assert result == {"session_id": "sess-2", "status": "ended"}
 
 
 def test_end_session_raises_on_unknown_session(monkeypatch):
-    monkeypatch.setattr(ws.httpx, "post", lambda url: FakeResponse(404))
+    monkeypatch.setattr(ws.httpx, "post", lambda url, headers=None: FakeResponse(404))
 
     with pytest.raises(httpx.HTTPStatusError):
         ws.end_session("does-not-exist")
@@ -403,7 +405,7 @@ def test_render_project_posts_with_a_long_timeout(monkeypatch):
 
     result = ws.render_project("first-reel")
 
-    assert calls == [(f"{ws.API_BASE_URL}/projects/first-reel/render", {"X-Session-Token": ""}, 900)]
+    assert calls == [(f"{ws.API_BASE_URL}/projects/first-reel/render", {}, 900)]
     assert result["status"] == "published"
 
 
