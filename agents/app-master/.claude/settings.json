@@ -1,0 +1,6 @@
+{
+  "permissions": {
+    "allow": ["mcp__workspace__*"],
+    "deny": ["Edit", "Write", "Bash"]
+  }
+}
