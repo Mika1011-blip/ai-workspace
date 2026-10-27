@@ -196,9 +196,10 @@ class TestAutoModeEndToEnd:
             "script", "script-review", "storyboard", "storyboard-review",
             "assets", "asset-review", "render", "render-review",
         ]
-        # The API-side publish step isn't built yet: the project waits there, visibly.
-        assert m["stage"] == "publish" and m["status"] == "running"
-        assert [e["status"] for e in m["stages"]] == ["success"] * 8
+        # Eight worker stages plus the API's render step and publish.
+        assert m["stage"] is None and m["status"] == "published"
+        assert [e["name"] for e in m["stages"]] == seen[:7] + ["render-step", "render-review", "publish"]
+        assert [e["status"] for e in m["stages"]] == ["success"] * 10
         assert len(SPAWNED) == 8
 
     def test_workers_alternate_maker_and_reviewer(self, client, projects_dir):
@@ -207,7 +208,7 @@ class TestAutoModeEndToEnd:
         for _ in range(8):
             report(client, projects_dir, "success")
 
-        workers = [e["worker"] for e in manifest(projects_dir)["stages"]]
+        workers = [e["worker"] for e in manifest(projects_dir)["stages"] if e["worker"] != "api"]
         assert workers == STAGE_WORKERS
 
 
