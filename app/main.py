@@ -437,6 +437,10 @@ def create_app(
     def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
 
+    @app.get("/gallery", include_in_schema=False)
+    def gallery() -> FileResponse:
+        return FileResponse(STATIC_DIR / "gallery.html")
+
     @app.get("/workers")
     def list_workers() -> list[Worker]:
         return [
