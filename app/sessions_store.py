@@ -33,7 +33,7 @@ def init_db(db_path: Path) -> None:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
         if "token_hash" not in columns:
             conn.execute("ALTER TABLE sessions ADD COLUMN token_hash TEXT")
-        # Databases from before the workers -> workers rename.
+        # Databases from before the agents -> workers rename.
         if "agent" in columns and "worker" not in columns:
             conn.execute("ALTER TABLE sessions RENAME COLUMN agent TO worker")
         conn.commit()

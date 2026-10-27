@@ -326,6 +326,42 @@ def test_send_to_session_posts_message_with_token(monkeypatch):
     assert result == {"accepted": True}
 
 
+def test_report_result_posts_own_session_with_token(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ws, "SESSION_ID", "caller-1")
+    monkeypatch.setattr(ws, "SESSION_TOKEN", "tok-1")
+
+    def fake_post(url, json, headers):
+        calls.append((url, json, headers))
+        return FakeResponse(200, {"run_id": "researcher-x", "status": "success"})
+
+    monkeypatch.setattr(ws.httpx, "post", fake_post)
+
+    result = ws.report_result("success", summary="done", tags=["scope:research"], metrics={"turns": 3})
+
+    assert calls == [
+        (
+            f"{ws.API_BASE_URL}/sessions/caller-1/result",
+            {
+                "status": "success",
+                "summary": "done",
+                "tags": ["scope:research"],
+                "metrics": {"turns": 3},
+                "error": None,
+            },
+            {"X-Session-Token": "tok-1"},
+        )
+    ]
+    assert result == {"run_id": "researcher-x", "status": "success"}
+
+
+def test_report_result_raises_on_bad_status(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "post", lambda url, json, headers: FakeResponse(400))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.report_result("done")
+
+
 def test_end_session_posts_to_end_endpoint(monkeypatch):
     calls = []
 

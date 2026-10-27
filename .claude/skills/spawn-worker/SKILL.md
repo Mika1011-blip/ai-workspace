@@ -39,6 +39,12 @@ Usage: `/spawn-worker <role> "<task>"`
    Fill `folder`/`worktree` if the task specifies one, else leave `null`.
    Fill `may_talk_to` from what the task/role brief implies, defaulting to
    `["lead"]` only.
-5. Report back: the role, its session id, and the task it was given.
+5. Write the run record `.claude/crew/runs/<role>/<run_id>.json` (schema:
+   `docs/run-record.md`), with `run_id` = `<role>-<started_at with : -> ->-<id>`,
+   `status: "running"`, `trigger: "manual"`, tags
+   `["worker:<role>", "trigger:manual", "env:local"]` plus any
+   `scope:`/`topic:` the task implies, `prompt_version` = first 7 hex of
+   sha256 of `roles/<role>.md`, and `session_id` = the id.
+6. Report back: the role, its session id, and the task it was given.
 
 Lead-only — never delegate this to a worker.
