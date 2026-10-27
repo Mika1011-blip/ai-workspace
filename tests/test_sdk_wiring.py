@@ -54,6 +54,32 @@ class FakeSdkRunner:
     def state(self):
         return list(self.live)
 
+    # events, like SdkRunner: a history plus live queues
+    def __post_init__(self):
+        pass
+
+    @property
+    def history(self):
+        if not hasattr(self, "_history"):
+            self._history = []
+        return self._history
+
+    def subscribe(self):
+        import queue
+
+        q = queue.Queue()
+        self.subscribers = getattr(self, "subscribers", [])
+        self.subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q):
+        self.subscribers.remove(q)
+
+    def publish(self, event):
+        self.history.append(event)
+        for q in getattr(self, "subscribers", []):
+            q.put(event)
+
 
 def auth(runner):
     # The fake runner saw the token in its SpawnSpec; that is the session's identity.
@@ -257,3 +283,49 @@ class TestEndSessionAuthorisation:
         assert runner.stopped == [child]
         assert c.post(f"/sessions/{master}/end", headers={"X-Session-Token": tok_master}).status_code == 200  # itself
         assert c.post(f"/sessions/{master}/end").status_code == 409  # the host, but it is already over
+
+
+class TestEventsStream:
+    def _events(self, text):
+        return [json.loads(line[len("data: "):]) for line in text.splitlines() if line.startswith("data: ")]
+
+    def test_replays_recent_events_then_streams_live_ones(self, workers_dir, templates_dir, sessions_db, messages_log):
+        runner = FakeSdkRunner()
+        c = make(workers_dir, templates_dir, sessions_db, messages_log, runner)
+        runner.publish({"session_id": "s1", "worker": "writer", "status": "thinking", "tool": None})
+        runner.publish({"session_id": "s1", "worker": "writer", "status": "using_tool", "tool": "Write"})
+
+        with c.stream("GET", "/events", params={"limit": 3}) as res:
+            assert res.status_code == 200
+            assert res.headers["content-type"].startswith("text/event-stream")
+            lines = iter(res.iter_lines())
+            first = [next(lines) for _ in range(6)]
+            runner.publish({"session_id": "s1", "worker": "writer", "status": "waiting", "tool": None})
+            rest = list(lines)
+
+        events = self._events("\n".join(first + rest))
+        assert [e["status"] for e in events] == ["thinking", "using_tool", "waiting"]
+        assert all(line.startswith(("event: state", "data: ", "")) for line in first + rest)
+        assert runner.subscribers == []  # unsubscribed when the stream ended
+
+    def test_replay_can_be_turned_off(self, workers_dir, templates_dir, sessions_db, messages_log):
+        runner = FakeSdkRunner()
+        c = make(workers_dir, templates_dir, sessions_db, messages_log, runner)
+        runner.publish({"session_id": "s1", "worker": "writer", "status": "thinking"})
+
+        with c.stream("GET", "/events", params={"limit": 1, "replay": 0}) as res:
+            lines = iter(res.iter_lines())
+            runner.publish({"session_id": "s2", "worker": "writer", "status": "waiting"})
+            text = "\n".join(list(lines))
+
+        assert [e["session_id"] for e in self._events(text)] == ["s2"]
+
+    def test_the_cli_runner_has_an_empty_feed(self):
+        from app.runner import CliRunner
+
+        runner = CliRunner(lambda s: [], lambda a, c: "", lambda s: None, lambda: set(), lambda o: o)
+
+        q = runner.subscribe()
+
+        assert list(runner.history) == [] and q.empty()
+        runner.unsubscribe(q)  # harmless

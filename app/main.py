@@ -3,6 +3,8 @@ import hmac
 import json
 import os
 import re
+import asyncio
+import queue as queue_module
 import secrets
 import shutil
 import subprocess
@@ -14,7 +16,7 @@ from pathlib import Path, PurePath
 from typing import Callable
 
 from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app import activity, pipeline, projects, render, run_records, sdk_runner, sessions_store
@@ -559,6 +561,40 @@ def create_app(
                 "updated_at": now, "session_id": None, "cost_usd": None, "turns": None, "simulated": False,
             })
         return out
+
+    @app.get("/events", include_in_schema=True)
+    async def events(
+        replay: int = Query(default=50, ge=0, le=500),
+        limit: int | None = Query(default=None, ge=1),
+    ) -> StreamingResponse:
+        """Server-sent events: every state change of every running session
+        (the floor's live feed). `replay` recent events come first, then
+        the stream stays open; `limit` ends it after that many events
+        (handy for curl and tests). A comment line every 15 s keeps the
+        connection alive."""
+        q = runner.subscribe()
+
+        async def stream():
+            sent = 0
+            try:
+                for event in list(runner.history)[-replay:] if replay else []:
+                    yield f"event: state\ndata: {json.dumps(event)}\n\n"
+                    sent += 1
+                    if limit is not None and sent >= limit:
+                        return
+                while limit is None or sent < limit:
+                    try:
+                        event = await asyncio.to_thread(q.get, True, 15)
+                    except queue_module.Empty:
+                        yield ": keepalive\n\n"
+                        continue
+                    yield f"event: state\ndata: {json.dumps(event)}\n\n"
+                    sent += 1
+            finally:
+                runner.unsubscribe(q)
+
+        return StreamingResponse(stream(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.get("/workers/{name}")
     def get_worker(name: str) -> Worker:

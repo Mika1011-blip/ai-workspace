@@ -30,8 +30,13 @@ GET /workers/state
 ]
 ```
 
-- Until workers really run, the backend returns **simulated** state (cycling statuses), and the page shows a visible "SIMULATED" badge.
+- Until workers really run, the backend returns **simulated** state (cycling statuses), and the page shows a visible "SIMULATED" badge. (Done: every entry carries `"simulated": false`, plus `session_id`, `cost_usd` and `turns`.)
 - `updated_at` older than 60 s → show the station as "stale".
+
+Live feed (milestone 4, done): `GET /events` is a server-sent-events stream of every
+state change -- `event: state`, `data: {"at", "session_id", "worker", "status", "tool",
+"context_used", "cost_usd", "turns", "text"?}`. `?replay=N` sends the last N events first
+(default 50), `?limit=N` closes after N events, and a `: keepalive` comment arrives every 15 s.
 
 ## Milestones
 1. `/factory` page: stations from `GET /workers`, simulated `GET /workers/state`, click → side panel, list fallback.

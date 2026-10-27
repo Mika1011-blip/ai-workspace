@@ -10,6 +10,8 @@ sessions are running right now.
 
 from __future__ import annotations
 
+import queue
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Protocol
@@ -66,6 +68,13 @@ class Runner(Protocol):
     def state(self) -> list[LiveState]:
         """Live state for every running session this runner knows about."""
 
+    history: deque  # the last state changes, oldest first
+
+    def subscribe(self) -> queue.Queue:
+        """A queue that receives every state change from now on."""
+
+    def unsubscribe(self, q: queue.Queue) -> None: ...
+
 
 class CliRunner:
     """App sessions as `claude --bg` processes (the way it has worked so
@@ -108,3 +117,12 @@ class CliRunner:
 
     def state(self) -> list[LiveState]:
         return []
+
+    # A --bg session reports nothing while it runs: no events, ever.
+    history: deque = deque(maxlen=1)
+
+    def subscribe(self) -> queue.Queue:
+        return queue.Queue()
+
+    def unsubscribe(self, q: queue.Queue) -> None:
+        return None
