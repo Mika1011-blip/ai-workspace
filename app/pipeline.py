@@ -27,6 +27,7 @@ STAGES: list[tuple[str, str | None, str]] = [
 ]
 STAGE_INDEX = {name: i for i, (name, _, _) in enumerate(STAGES)}
 MAX_ATTEMPTS = 2  # a maker runs at most twice per gate: first try, one revision
+DECISIONS = {"approve", "revise", "skip"}
 
 SCOPE = {
     "script": "docs", "script-review": "docs",
@@ -149,6 +150,40 @@ class Pipeline:
         entry["status"] = "failed"
         entry["ended_at"] = stamp(self.now())
         self._fail(folder, manifest, f"{stage}: {error}")
+        return manifest
+
+    def decide(self, slug: str, decision: str, notes: str | None, by: str) -> dict:
+        """A checkpoint decision (guided mode): approve, revise, or skip."""
+        if decision not in DECISIONS:
+            raise PipelineError(400, f"bad_decision: one of {sorted(DECISIONS)}")
+        folder = self.projects_path / slug
+        manifest = projects.read_manifest(folder)
+        if manifest is None:
+            raise PipelineError(404, f"Project '{slug}' not found")
+        if manifest["status"] != "awaiting_approval":
+            raise PipelineError(409, f"nothing to decide: project is {manifest['status']}")
+        review_stage = manifest["stage"]
+        reviewer_notes = next(
+            (e["summary"] for e in reversed(manifest["stages"]) if e["name"] == review_stage), None
+        )
+        entry = {
+            "at": stamp(self.now()),
+            "stage": review_stage,
+            "decision": decision,
+            "notes": notes,
+            "by": by,
+            "triggered": None,
+        }
+        if decision == "revise":
+            maker = STAGES[STAGE_INDEX[review_stage] - 1][0]
+            combined = " / ".join(n for n in (reviewer_notes, notes) if n)
+            # Mika's revisions are never capped: the one-revision rule is for reviewers.
+            self._run_stage(folder, manifest, maker, notes=combined or None)
+            entry["triggered"] = f"{maker} attempt {manifest['stages'][-1]['attempt']}"
+        else:
+            self._advance(folder, manifest, review_stage)
+            entry["triggered"] = manifest["stage"] or "published"
+        projects.append_decision(folder, entry)
         return manifest
 
     # -- transitions -----------------------------------------------------------

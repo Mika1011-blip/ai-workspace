@@ -118,6 +118,12 @@ class ExportRequest(BaseModel):
     dest_dir: str
 
 
+class DecisionRequest(BaseModel):
+    decision: str
+    notes: str | None = None
+    by: str | None = None
+
+
 class MessageCreate(BaseModel):
     # `from` is optional: the token says who the sender is. If given, it
     # must agree with the token.
@@ -691,6 +697,20 @@ def create_app(
         except pipeline.PipelineError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
+    @app.post("/projects/{slug}/decision")
+    def decide_project(
+        body: DecisionRequest, slug: str, x_session_token: str | None = Header(default=None)
+    ) -> dict:
+        validate_name(slug)
+        # Who decided: a session (the producer worker) by its token, else a
+        # person -- the name they give, or "mika" when they don't.
+        session = authenticate(sessions_db_path, x_session_token)
+        by = session["session_id"] if session else (body.by or "mika")
+        try:
+            return studio.decide(slug, body.decision, body.notes, by)
+        except pipeline.PipelineError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
     @app.get("/workers/{name}/activity")
     def worker_activity(name: str, limit: int = 100) -> list[dict]:
         validate_name(name)
@@ -757,6 +777,9 @@ def create_app(
             manifest["title"] = body.title.strip()
         projects.write_manifest(folder, manifest, datetime.now(timezone.utc))
         projects.upsert(sessions_db_path, manifest, folder)
+        # auto means nobody is at the checkpoint: a waiting project moves on.
+        if body.mode == "auto" and manifest["status"] == "awaiting_approval":
+            return studio.decide(slug, "approve", None, "auto")
         return manifest
 
     @app.delete("/projects/{slug}", status_code=204)
