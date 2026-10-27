@@ -14,11 +14,11 @@ and what was decided.*
 | Every run writes a tagged JSON record; stats from records | records + index + `GET /runs` built; Stats tab not yet |
 | Messaging by session id; crew/app wall | built, proven live |
 | Code-made media | ffmpeg video built; SVG/HTML→PNG and Remotion not yet |
-| Live state (`/workers/state`), thought bubbles, SSE | not built — needs the SDK runner |
+| Live state (`/workers/state`), thought bubbles, SSE | `/workers/state` is real (status, tool, context, cost); SSE and bubbles not yet |
 | Sidebar · worker panel (Chat / Stats / Settings) · 3D floor | not built |
 | Per-worker toolkit from a vetted catalog | per-spawn grants only; no persistent toolkit, no catalog |
 | app-master undeletable | built with the dispatcher (below) |
-| Runner on the Claude Agent SDK | not yet — app workers are `claude --bg` sessions |
+| Runner on the Claude Agent SDK | built — `app/sdk_runner.py`, default; `RUNNER=cli` keeps `claude --bg` |
 
 ## 2. Three decisions
 

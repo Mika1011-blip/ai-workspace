@@ -23,9 +23,16 @@ pytest                               # run before saying a task is done
 docker compose up                    # same app in a container; see note below
 ```
 
+App workers run on the Claude Agent SDK (`app/sdk_runner.py`): the API
+starts each session in-process, sees its status, tool and cost live
+(`GET /workers/state`), and ends it once it has reported. Sessions use the
+login this machine already has (`claude login`); any `ANTHROPIC_API_KEY`
+in the environment is deliberately kept away from them. `RUNNER=cli` falls
+back to the old `claude --bg` processes.
+
 Inside Docker, `POST /sessions` answers `503 spawning_disabled`: spawning a
-session runs `claude --bg` on the host, and the image has neither the CLI
-nor your login. Everything else works there; `workers/`, `worker_templates/`,
+session needs the SDK's bundled CLI and your login, and the image has
+neither. Everything else works there; `workers/`, `worker_templates/`,
 `data/` and `runs/` are mounted from your disk.
 
 ## First run on a new machine
