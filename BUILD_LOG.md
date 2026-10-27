@@ -108,3 +108,4 @@
 - 2026-10-27 21:53:54 — commit 380c3bb Route app sessions through a Runner
 - 2026-10-27 22:07:14 — commit cc4bdef Write deny rules in the form Claude Code matches on Windows
 - 2026-10-27 22:16:27 — commit ecfd86b Run app workers on the Claude Agent SDK
+- 2026-10-27 22:27:33 — commit c1237d4 Stream session state changes as server-sent events

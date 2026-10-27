@@ -14,7 +14,7 @@ and what was decided.*
 | Every run writes a tagged JSON record; stats from records | records + index + `GET /runs` built; Stats tab not yet |
 | Messaging by session id; crew/app wall | built, proven live |
 | Code-made media | ffmpeg video built; SVG/HTML→PNG and Remotion not yet |
-| Live state (`/workers/state`), thought bubbles, SSE | `/workers/state` is real (status, tool, context, cost); SSE and bubbles not yet |
+| Live state (`/workers/state`), thought bubbles, SSE | built — `/workers/state` and `GET /events` (SSE); bubbles are the page's job |
 | Sidebar · worker panel (Chat / Stats / Settings) · 3D floor | not built |
 | Per-worker toolkit from a vetted catalog | per-spawn grants only; no persistent toolkit, no catalog |
 | app-master undeletable | built with the dispatcher (below) |
