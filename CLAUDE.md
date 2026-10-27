@@ -28,6 +28,12 @@ pytest tests/test_workers.py::test_duplicate_name_is_refused
 
 # Run one parametrized case
 pytest "tests/test_workers.py::test_bad_name_is_refused[../secret]"
+
+# Frontend (React, in frontend/): install, dev server, build, tests
+cd frontend && npm install
+npm run dev        # http://localhost:5173/app/ (API proxied to :8000)
+npm run build      # -> frontend/dist, served by the API at /app
+npm test           # vitest
 ```
 
 There is no lint/format command configured in this repo.
@@ -42,7 +48,7 @@ There is no lint/format command configured in this repo.
 
 ## Layout
 
-- Backend: see `.claude/rules/api.md` · Web page: `.claude/rules/ui.md` · 3D factory: `.claude/rules/factory.md`
+- Backend: see `.claude/rules/api.md` · Web app (React, `frontend/`): `.claude/rules/ui.md` and `docs/ui-spec.md` · old 3D page: `.claude/rules/factory.md`
 - 3D factory spec: @docs/3d-factory.md
 - `BUILD_LOG.md` is maintained automatically by two hooks — `.claude/hooks/log-step.sh` (the `Stop`
   hook in `.claude/settings.json`) and `.githooks/post-commit` (active via `core.hooksPath`). Don't

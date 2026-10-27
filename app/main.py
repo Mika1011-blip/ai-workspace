@@ -405,6 +405,7 @@ def create_app(
     render_run: render.RunFn | None = None,
     runner: Runner | None = None,
     catalog_file: Path | str | None = None,
+    frontend_dist: Path | str | None = None,
 ) -> FastAPI:
     # Resolved once: these paths are handed to other processes (spawned
     # sessions, docker) whose cwd is not ours.
@@ -412,6 +413,7 @@ def create_app(
     workers_path.mkdir(parents=True, exist_ok=True)
     templates_path = Path(templates_dir or os.environ.get("TEMPLATES_DIR", "worker_templates"))
     catalog_path = Path(catalog_file or os.environ.get("CATALOG_FILE", Path(__file__).resolve().parents[1] / "catalog.json"))
+    frontend_dist_path = Path(frontend_dist or os.environ.get("FRONTEND_DIST", Path(__file__).resolve().parents[1] / "frontend" / "dist"))
 
     def load_catalog() -> dict:
         # Re-read on every use: editing catalog.json must not need a restart.
@@ -559,6 +561,21 @@ def create_app(
     def factory() -> FileResponse:
         """The 3D floor (docs/3d-factory.md): draws /workers/state, nothing else."""
         return FileResponse(STATIC_DIR / "factory" / "index.html")
+
+    @app.get("/app", include_in_schema=False)
+    @app.get("/app/{path:path}", include_in_schema=False)
+    def spa(path: str = "") -> FileResponse:
+        """The React app (frontend/dist, built with `npm run build`): a real
+        file when the path names one, otherwise index.html so the app owns
+        its routes. 503 until it has been built."""
+        if path:
+            candidate = (frontend_dist_path / path).resolve()
+            if candidate.is_file() and frontend_dist_path.resolve() in candidate.parents:
+                return FileResponse(candidate)
+        index = frontend_dist_path / "index.html"
+        if not index.is_file():
+            raise HTTPException(status_code=503, detail="frontend_not_built: run `npm install && npm run build` in frontend/")
+        return FileResponse(index)
 
     @app.get("/workers")
     def list_workers() -> list[Worker]:
