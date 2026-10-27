@@ -41,13 +41,27 @@ GET /sessions?caller={session_id}
 
 POST /sessions/{id}/messages
   body: { "from": str, "text": str }
-  -> 202 on success; forwards the message to `{id}`'s session.
+  -> 202 { "accepted": true }. Checked and logged only -- forwarding the
+     text into `{id}`'s running session is NOT implemented yet, so the
+     response must not say "delivered".
   -> 404 "unknown_session" if `id` or `from` doesn't exist in the table.
   -> 409 "session_ended" if either is `ended`.
   -> 403 "not_allowed" if `from` isn't in `{id}`'s `may_talk_to`.
   Every attempt (success or refusal) is appended to `runs/messages.jsonl`
   with timestamp, `from`, `to`, and outcome.
+
+POST /sessions/{id}/end
+  -> 200, the entry with status "ended" and `ended_at` set. Runs
+     `claude stop {id}` first (skipped when SPAWN_ENABLED=false, where
+     there is no process to stop -- the row is still closed).
+  -> 404 "unknown_session"; 409 "session_ended" if already ended.
 ```
+
+**Startup reconciliation** (`docs/comms-protocol.md` §4: ids belong to
+one machine): when the app starts with spawning enabled, it runs
+`claude agents --json` and marks every `live` row whose id is no longer
+running as `ended`. Inside Docker (spawning disabled) this is skipped --
+the rows are the host's to reconcile.
 
 Follows the existing conventions in `.claude/rules/api.md`: pydantic bodies,
 404/400/403 only, never a bare 500, new tests alongside the endpoints.
@@ -58,6 +72,7 @@ Follows the existing conventions in `.claude/rules/api.md`: pydantic bodies,
 spawn_session(agent: str, task: str) -> dict      # POST /sessions
 list_sessions() -> list[dict]                     # GET /sessions?caller=<self>
 send_to_session(session_id: str, text: str) -> dict  # POST /sessions/{id}/messages
+end_session(session_id: str) -> dict              # POST /sessions/{id}/end
 ```
 
 Same thin-wrapper style as the existing tools (`httpx` calls,

@@ -174,14 +174,28 @@ def send_to_session(session_id: str, text: str) -> dict:
     """Send a message to another session.
 
     Calls POST /sessions/{session_id}/messages with `{"from":
-    SESSION_ID, "text": text}`. Raises an error if either session is
-    unknown or ended, or if this session isn't allowed to message the
-    target.
+    SESSION_ID, "text": text}`. Returns `{"accepted": true}` -- the API
+    has checked and logged the message, but does not yet forward it into
+    the target session. Raises an error if either session is unknown or
+    ended, or if this session isn't allowed to message the target.
     """
     response = httpx.post(
         f"{API_BASE_URL}/sessions/{session_id}/messages",
         json={"from": SESSION_ID, "text": text},
     )
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool
+def end_session(session_id: str) -> dict:
+    """End a session: stop its process and mark it ended in the registry.
+
+    Calls POST /sessions/{session_id}/end and returns the closed entry.
+    Raises an error if the session is unknown or already ended. Ended ids
+    are never reused.
+    """
+    response = httpx.post(f"{API_BASE_URL}/sessions/{session_id}/end")
     response.raise_for_status()
     return response.json()
 

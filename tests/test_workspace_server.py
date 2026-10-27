@@ -273,7 +273,7 @@ def test_send_to_session_posts_message(monkeypatch):
 
     def fake_post(url, json):
         calls.append((url, json))
-        return FakeResponse(202, {"delivered": True})
+        return FakeResponse(202, {"accepted": True})
 
     monkeypatch.setattr(ws.httpx, "post", fake_post)
 
@@ -282,7 +282,29 @@ def test_send_to_session_posts_message(monkeypatch):
     assert calls == [
         (f"{ws.API_BASE_URL}/sessions/sess-2/messages", {"from": "caller-1", "text": "hi"})
     ]
-    assert result == {"delivered": True}
+    assert result == {"accepted": True}
+
+
+def test_end_session_posts_to_end_endpoint(monkeypatch):
+    calls = []
+
+    def fake_post(url):
+        calls.append(url)
+        return FakeResponse(200, {"session_id": "sess-2", "status": "ended"})
+
+    monkeypatch.setattr(ws.httpx, "post", fake_post)
+
+    result = ws.end_session("sess-2")
+
+    assert calls == [f"{ws.API_BASE_URL}/sessions/sess-2/end"]
+    assert result == {"session_id": "sess-2", "status": "ended"}
+
+
+def test_end_session_raises_on_unknown_session(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "post", lambda url: FakeResponse(404))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.end_session("does-not-exist")
 
 
 def test_send_to_session_raises_on_unknown_session(monkeypatch):

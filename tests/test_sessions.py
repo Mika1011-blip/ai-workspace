@@ -7,6 +7,7 @@ from app import sessions_store
 from app.main import create_app
 
 NEXT_ID = {"n": 0}
+STOPPED = []
 
 
 def fake_spawn_fn(agent, task, agent_folder):
@@ -14,9 +15,14 @@ def fake_spawn_fn(agent, task, agent_folder):
     return f"sess-{NEXT_ID['n']}"
 
 
+def fake_stop_fn(session_id):
+    STOPPED.append(session_id)
+
+
 @pytest.fixture(autouse=True)
-def _reset_fake_ids():
+def _reset_fakes():
     NEXT_ID["n"] = 0
+    STOPPED.clear()
 
 
 @pytest.fixture
@@ -39,16 +45,23 @@ def messages_log(tmp_path):
     return tmp_path / "messages.jsonl"
 
 
-@pytest.fixture
-def client(agents_dir, templates_dir, sessions_db, messages_log):
-    app = create_app(
+def make_app(agents_dir, templates_dir, sessions_db, messages_log, **overrides):
+    kwargs = dict(
         agents_dir=agents_dir,
         templates_dir=templates_dir,
         sessions_db=sessions_db,
         messages_log=messages_log,
         spawn_fn=fake_spawn_fn,
+        stop_fn=fake_stop_fn,
+        running_ids_fn=lambda: set(),
     )
-    return TestClient(app)
+    kwargs.update(overrides)
+    return create_app(**kwargs)
+
+
+@pytest.fixture
+def client(agents_dir, templates_dir, sessions_db, messages_log):
+    return TestClient(make_app(agents_dir, templates_dir, sessions_db, messages_log))
 
 
 def create_agent(client, name):
@@ -87,14 +100,7 @@ class TestSpawnSession:
     ):
         # What Docker runs: the image has no `claude` CLI, so compose sets
         # SPAWN_ENABLED=false and the endpoint must refuse cleanly.
-        app = create_app(
-            agents_dir=agents_dir,
-            templates_dir=templates_dir,
-            sessions_db=sessions_db,
-            messages_log=messages_log,
-            spawn_fn=fake_spawn_fn,
-            spawn_enabled=False,
-        )
+        app = make_app(agents_dir, templates_dir, sessions_db, messages_log, spawn_enabled=False)
         client = TestClient(app)
         create_agent(client, "researcher")
 
@@ -141,7 +147,7 @@ class TestSendMessage:
         res = client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"})
 
         assert res.status_code == 202
-        assert res.json() == {"delivered": True}
+        assert res.json() == {"accepted": True}
 
     def test_unknown_target_is_404(self, client):
         a, _ = self._two_live_sessions(client)
@@ -191,7 +197,7 @@ class TestSendMessage:
         assert res.status_code == 403
         assert res.json()["detail"] == "not_allowed"
 
-    def test_delivered_message_is_logged(self, client, messages_log):
+    def test_accepted_message_is_logged(self, client, messages_log):
         a, b = self._two_live_sessions(client)
 
         client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"})
@@ -200,4 +206,117 @@ class TestSendMessage:
         assert len(lines) == 1
         assert f'"from": "{a}"' in lines[0]
         assert f'"to": "{b}"' in lines[0]
-        assert '"outcome": "delivered"' in lines[0]
+        assert '"outcome": "accepted"' in lines[0]
+
+
+class TestEndSession:
+    def test_ends_a_live_session_and_stops_its_process(self, client):
+        create_agent(client, "researcher")
+        sid = spawn(client, "researcher").json()["session_id"]
+
+        res = client.post(f"/sessions/{sid}/end")
+
+        assert res.status_code == 200
+        assert res.json()["status"] == "ended"
+        assert res.json()["ended_at"] is not None
+        assert STOPPED == [sid]
+
+    def test_unknown_session_is_404(self, client):
+        res = client.post("/sessions/no-such-id/end")
+
+        assert res.status_code == 404
+        assert res.json()["detail"] == "unknown_session"
+
+    def test_already_ended_is_409_and_not_stopped_twice(self, client):
+        create_agent(client, "researcher")
+        sid = spawn(client, "researcher").json()["session_id"]
+        client.post(f"/sessions/{sid}/end")
+
+        res = client.post(f"/sessions/{sid}/end")
+
+        assert res.status_code == 409
+        assert res.json()["detail"] == "session_ended"
+        assert STOPPED == [sid]
+
+    def test_ended_session_can_no_longer_be_messaged(self, client):
+        create_agent(client, "researcher")
+        create_agent(client, "writer")
+        a = spawn(client, "researcher", may_talk_to=[]).json()["session_id"]
+        b = spawn(client, "writer", may_talk_to=[a]).json()["session_id"]
+        client.post(f"/sessions/{b}/end")
+
+        res = client.post(f"/sessions/{b}/messages", json={"from": a, "text": "hi"})
+
+        assert res.status_code == 409
+
+    def test_disabled_spawning_still_marks_ended_without_stopping(
+        self, agents_dir, templates_dir, sessions_db, messages_log
+    ):
+        # Seed a live row with a host-side app, then end it from a
+        # Docker-like app that has no claude CLI to stop the process.
+        host = TestClient(make_app(agents_dir, templates_dir, sessions_db, messages_log))
+        create_agent(host, "researcher")
+        sid = spawn(host, "researcher").json()["session_id"]
+        docker = TestClient(
+            make_app(agents_dir, templates_dir, sessions_db, messages_log, spawn_enabled=False)
+        )
+
+        res = docker.post(f"/sessions/{sid}/end")
+
+        assert res.status_code == 200
+        assert STOPPED == []
+
+
+class TestStartupReconciliation:
+    def test_live_rows_not_running_anymore_are_closed(
+        self, agents_dir, templates_dir, sessions_db, messages_log
+    ):
+        first = TestClient(make_app(agents_dir, templates_dir, sessions_db, messages_log))
+        create_agent(first, "researcher")
+        create_agent(first, "writer")
+        keep = spawn(first, "researcher").json()["session_id"]
+        gone = spawn(first, "writer").json()["session_id"]
+
+        # New machine / restart: only `keep` is still running. Entering the
+        # client runs the app's startup, which is where reconciliation lives.
+        with TestClient(
+            make_app(agents_dir, templates_dir, sessions_db, messages_log, running_ids_fn=lambda: {keep})
+        ):
+            pass
+
+        assert sessions_store.get_session(sessions_db, keep)["status"] == "live"
+        assert sessions_store.get_session(sessions_db, gone)["status"] == "ended"
+        assert sessions_store.get_session(sessions_db, gone)["ended_at"] is not None
+
+    def test_skipped_when_running_set_is_unknown(
+        self, agents_dir, templates_dir, sessions_db, messages_log
+    ):
+        # No claude CLI / command failed -> None. Must NOT be treated as
+        # "nothing is running", or every live session would be closed.
+        first = TestClient(make_app(agents_dir, templates_dir, sessions_db, messages_log))
+        create_agent(first, "researcher")
+        sid = spawn(first, "researcher").json()["session_id"]
+
+        with TestClient(
+            make_app(agents_dir, templates_dir, sessions_db, messages_log, running_ids_fn=lambda: None)
+        ):
+            pass
+
+        assert sessions_store.get_session(sessions_db, sid)["status"] == "live"
+
+    def test_skipped_when_spawning_is_disabled(
+        self, agents_dir, templates_dir, sessions_db, messages_log
+    ):
+        first = TestClient(make_app(agents_dir, templates_dir, sessions_db, messages_log))
+        create_agent(first, "researcher")
+        sid = spawn(first, "researcher").json()["session_id"]
+
+        with TestClient(
+            make_app(
+                agents_dir, templates_dir, sessions_db, messages_log,
+                spawn_enabled=False, running_ids_fn=lambda: set(),
+            )
+        ):
+            pass
+
+        assert sessions_store.get_session(sessions_db, sid)["status"] == "live"
