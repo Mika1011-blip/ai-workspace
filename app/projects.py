@@ -34,6 +34,7 @@ def new_manifest(slug: str, title: str, fmt: str, renderer: str, mode: str, now:
         "status": "created",
         "stage": None,
         "stages": [],
+        "handoffs": [],
         "created_at": stamp(now),
         "updated_at": stamp(now),
     }
@@ -92,6 +93,26 @@ def artifacts(project_dir: Path) -> list[dict]:
             }
         )
     return out
+
+
+def map_handoff(db_path: Path, session_id: str, slug: str) -> None:
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO handoff_sessions (session_id, slug) VALUES (?, ?)", (session_id, slug)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def handoff_for_session(db_path: Path, session_id: str) -> str | None:
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT slug FROM handoff_sessions WHERE session_id = ?", (session_id,)).fetchone()
+    finally:
+        conn.close()
+    return None if row is None else row[0]
 
 
 def append_decision(project_dir: Path, entry: dict) -> None:
@@ -155,6 +176,14 @@ def init_table(db_path: Path) -> None:
                 session_id TEXT PRIMARY KEY,
                 slug TEXT NOT NULL,
                 stage TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS handoff_sessions (
+                session_id TEXT PRIMARY KEY,
+                slug TEXT NOT NULL
             )
             """
         )

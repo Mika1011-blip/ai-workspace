@@ -99,3 +99,4 @@
 - 2026-10-27 20:47:13 — commit 5d2a6f2 Project MCP tools and the producer worker
 - 2026-10-27 20:50:40 — commit 019a540 The eight stage workers and the social-short format skill
 - 2026-10-27 21:06:59 — commit 80407de Vision gap: dispatch replaces the fixed pipeline, SDK runner, decisions
+- 2026-10-27 21:11:09 — commit 55540a1 The master dispatches: assign_task, wait_for_run, hand-off log, protected master
