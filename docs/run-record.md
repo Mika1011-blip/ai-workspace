@@ -80,3 +80,22 @@ week.
 
 Filter with `GET /runs?worker=…&status=…&tag=scope:research&since=<ISO>`.
 Each query parameter narrows; `tag` may repeat.
+
+## Activity log
+
+Next to the records, each worker has a timeline: `workers/<name>/activity.jsonl`
+(crew: `.claude/crew/runs/<role>/activity.jsonl`), one JSON object per line,
+appended by the same writer as the records. Where a record says what a run
+produced, the log says what happened, when, and with whom:
+
+| event | fields |
+|---|---|
+| `spawned` | `session_id`, `run_id`, `trigger`, `spawned_by`, `task` |
+| `result_reported` | `session_id`, `run_id`, `status` |
+| `message_out` / `message_in` | `to` / `from`, `outcome` (`accepted`, `not_allowed`, `bad_token`, `session_ended`) — written on **both** workers' logs, refusals included |
+| `ended` | `session_id`, `run_id`, `status` (the run's final status) |
+| `reconciled` | `session_id`, `run_id`, `status`, `reason` |
+
+Every line has `at` (UTC, `…Z`). Read the tail with
+`GET /workers/{name}/activity?limit=100` (oldest first). The global
+`runs/messages.jsonl` keeps the cross-worker message audit as before.

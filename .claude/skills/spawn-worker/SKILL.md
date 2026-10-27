@@ -45,6 +45,12 @@ Usage: `/spawn-worker <role> "<task>"`
    `["worker:<role>", "trigger:manual", "env:local"]` plus any
    `scope:`/`topic:` the task implies, `prompt_version` = first 7 hex of
    sha256 of `roles/<role>.md`, and `session_id` = the id.
-6. Report back: the role, its session id, and the task it was given.
+6. Append one line to `.claude/crew/runs/<role>/activity.jsonl`:
+   `{"at": "<now Z>", "event": "spawned", "session_id": "<id>", "run_id": "<run_id>", "trigger": "manual", "task": "<task>"}`.
+7. Report back: the role, its session id, and the task it was given.
+
+When you later message this worker, append `{"at", "event": "message_out",
+"to": "<id>", "outcome": "sent"}` to the same file, and `message_in` when
+it answers — the crew has no API doing this for it.
 
 Lead-only — never delegate this to a worker.

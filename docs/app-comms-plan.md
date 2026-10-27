@@ -143,6 +143,11 @@ close the record, marking it `failed` if the worker never reported.
 `GET /runs?worker=&status=&tag=&since=` queries the index. Schema, status
 transitions and the tag vocabulary: `docs/run-record.md`.
 
+Alongside, `workers/<name>/activity.jsonl` is each worker's timeline:
+every spawn, report, message (both sides, refusals included), end and
+reconciliation the API handles for it, readable via
+`GET /workers/{name}/activity?limit=`.
+
 ## 5. Tests (owner: worktree B, for the API; worktree A for the MCP tools)
 
 - Message to an unknown `session_id` → `404 unknown_session`.
