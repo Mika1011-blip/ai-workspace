@@ -555,6 +555,11 @@ def create_app(
     def gallery() -> FileResponse:
         return FileResponse(STATIC_DIR / "gallery.html")
 
+    @app.get("/factory", include_in_schema=False)
+    def factory() -> FileResponse:
+        """The 3D floor (docs/3d-factory.md): draws /workers/state, nothing else."""
+        return FileResponse(STATIC_DIR / "factory" / "index.html")
+
     @app.get("/workers")
     def list_workers() -> list[Worker]:
         return [

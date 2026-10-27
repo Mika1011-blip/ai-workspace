@@ -15,7 +15,7 @@ and what was decided.*
 | Messaging by session id; crew/app wall | built, proven live |
 | Code-made media | ffmpeg video built; SVG/HTML→PNG and Remotion not yet |
 | Live state (`/workers/state`), thought bubbles, SSE | built — `/workers/state` and `GET /events` (SSE); bubbles are the page's job |
-| Sidebar · worker panel (Chat / Stats / Settings) · 3D floor | panel built on the workers page (team list with live status, Chat / Stats / Settings); 3D floor not yet |
+| Sidebar · worker panel (Chat / Stats / Settings) · 3D floor | built — panel on the workers page (team list with live status, Chat / Stats / Settings) and the 3D floor at `/factory` on real state |
 | Per-worker toolkit from a vetted catalog | built — `catalog.json` + `worker_templates/skills/` are the catalog; `workers/<w>/toolkit.json` the toolkit (`/catalog`, `/workers/{w}/toolkit`, MCP `set_toolkit`) |
 | app-master undeletable | built with the dispatcher (below) |
 | Runner on the Claude Agent SDK | built — `app/sdk_runner.py`, default; `RUNNER=cli` keeps `claude --bg` |
