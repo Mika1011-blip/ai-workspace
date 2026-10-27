@@ -94,3 +94,4 @@
 - 2026-10-27 20:26:44 — commit d18e318 Pipeline state machine: stages, review gates, one revision, auto mode
 - 2026-10-27 20:28:20 — commit af20399 Fix the grants activity-log test for resolved paths
 - 2026-10-27 20:31:22 — commit 2fe7bae Guided mode: checkpoint decisions -- approve, revise, skip
+- 2026-10-27 20:38:10 — commit a0c92c0 Render and publish: the ffmpeg renderer image, the API render step, browser-safe publish

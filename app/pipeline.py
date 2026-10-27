@@ -70,12 +70,18 @@ class Pipeline:
         db_path: Path,
         workers_path: Path,
         start_session: Callable[..., dict],
+        render_step: Callable[[Path, str], tuple[bool, str]] | None = None,
+        publish_step: Callable[[Path], tuple[bool, str]] | None = None,
         now: Callable[[], datetime] | None = None,
     ):
         self.projects_path = projects_path
         self.db_path = db_path
         self.workers_path = workers_path
         self.start_session = start_session
+        # The API-side steps (docs/animation-studio.md §6). Without them a
+        # project waits, visibly, at the step it cannot perform.
+        self.render_step = render_step
+        self.publish_step = publish_step
         self.now = now or (lambda: datetime.now(timezone.utc))
 
     # -- entry points ----------------------------------------------------------
@@ -191,6 +197,11 @@ class Pipeline:
     def _advance(self, folder: Path, manifest: dict, done_stage: str) -> None:
         nxt = self._next_name(done_stage)
         manifest["next_stage"] = None
+        if done_stage == "render" and nxt == "render-review":
+            # The renderer worker wrote its input; the API renders it before
+            # anyone reviews it.
+            if not self._api_step(folder, manifest, "render-step", lambda: self.render_step(folder, manifest["renderer"])):
+                return
         if nxt is None:
             manifest["stage"] = None
             manifest["status"] = "published"
@@ -198,13 +209,36 @@ class Pipeline:
             return
         _, worker, kind = STAGES[STAGE_INDEX[nxt]]
         if kind == "api":
-            # Performed by the API (render step, publish) -- wired in a later PR.
-            # Until then the project waits here, visibly, instead of pretending.
             manifest["stage"] = nxt
             manifest["status"] = "running"
             self._save(folder, manifest)
+            if nxt == "publish" and self._api_step(folder, manifest, "publish", lambda: self.publish_step(folder)):
+                manifest["stage"] = None
+                manifest["status"] = "published"
+                self._save(folder, manifest)
             return
         self._run_stage(folder, manifest, nxt)
+
+    def _api_step(self, folder: Path, manifest: dict, name: str, step) -> bool:
+        """Run an API-side step, recording it like a stage. False = the project
+        is now failed (or waiting, if the step isn't wired at all)."""
+        if (name == "render-step" and self.render_step is None) or (name == "publish" and self.publish_step is None):
+            manifest["stage"] = name if name == "publish" else "render-review"
+            manifest["status"] = "running"
+            self._save(folder, manifest)
+            return False
+        entry = {
+            "name": name, "worker": "api", "attempt": 1, "session_id": None, "run_id": None,
+            "status": "running", "started_at": stamp(self.now()), "ended_at": None, "summary": None, "notes": None,
+        }
+        manifest["stages"].append(entry)
+        ok, output = step()
+        entry["ended_at"] = stamp(self.now())
+        entry["status"] = "success" if ok else "failed"
+        entry["summary"] = (output or "")[-500:] or None
+        if not ok:
+            self._fail(folder, manifest, f"{name}: {(output or 'failed').strip().splitlines()[-1] if output else 'failed'}")
+        return ok
 
     def _revise_or_stop(self, folder: Path, manifest: dict, review_stage: str, notes: str | None) -> None:
         maker = STAGES[STAGE_INDEX[review_stage] - 1][0]

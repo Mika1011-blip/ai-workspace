@@ -137,4 +137,4 @@ class TestDecisions:
             report(client, projects_dir, "success")
 
         m = manifest(projects_dir)
-        assert m["stage"] == "publish" and m["status"] == "running"
+        assert m["stage"] is None and m["status"] == "published"

@@ -16,7 +16,7 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app import activity, pipeline, projects, run_records, sessions_store
+from app import activity, pipeline, projects, render, run_records, sessions_store
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -337,6 +337,7 @@ def create_app(
     spawn_enabled: bool | None = None,
     stop_fn: Callable[[str], None] | None = None,
     running_ids_fn: Callable[[], set[str] | None] | None = None,
+    render_run: render.RunFn | None = None,
 ) -> FastAPI:
     workers_path = Path(workers_dir or os.environ.get("WORKERS_DIR", "workers"))
     workers_path.mkdir(parents=True, exist_ok=True)
@@ -609,7 +610,11 @@ def create_app(
             "run_id": record["run_id"],
         }
 
-    studio = pipeline.Pipeline(projects_path, sessions_db_path, workers_path, start_session)
+    renderer = render.Renderer(render_run) if render_run else render.Renderer()
+    studio = pipeline.Pipeline(
+        projects_path, sessions_db_path, workers_path, start_session,
+        render_step=renderer.render, publish_step=renderer.publish,
+    )
 
     @app.post("/sessions", status_code=201)
     def spawn_session(

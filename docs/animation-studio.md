@@ -20,9 +20,15 @@ projects/<slug>/                     # slug matches ^[a-z0-9-]{1,40}$
     01-script.md.json                # … plus a sidecar: what it is, who made it, from which run
     02-script-review.md  (+ .json)   # a review is an artifact too
     03-storyboard/       (+ .json)
-    04-voice.mp3         (+ .json)
-    05-render/           (+ .json)   # renderer input written by the renderer worker
-    05-render.log        (+ .json)   # what the container printed
+    04-storyboard-review.md (+ .json)
+    05-voice.mp3         (+ .json)   # assets
+    06-asset-review.md   (+ .json)
+    07-render/           (+ .json)   # renderer input written by the renderer worker
+    07-render.log        (+ .json)   # what the container printed
+    final-candidate.mp4  (+ .json)   # the render, before the publish check
+    07-render-frames/    (+ .json)   # six frames of it, for the render review
+    08-render-review.md  (+ .json)
+    08-publish.log       (+ .json)
   decisions.jsonl                    # every approve / revise / skip: who, when, notes, run it triggered
 ```
 
@@ -158,8 +164,8 @@ are resolved and must stay under `projects/<slug>/artifacts/`.
 ## 6. Rendering
 
 **No Claude inside Docker.** The `renderer` worker writes the renderer's
-input into `05-render/` (a Remotion composition, a Manim scene, or an
-ffmpeg plan); the API runs the container:
+input into `07-render/` (a Remotion composition, a Manim scene, or an
+ffmpeg `plan.json`); the API runs the container:
 
 ```
 docker run --rm -v <abs>/projects/<slug>:/project ai-workspace/renderer-<name> render
@@ -167,9 +173,15 @@ docker run --rm -v <abs>/projects/<slug>:/project ai-workspace/renderer-<name> r
 
 One image per renderer under `docker/renderers/<name>/` (`remotion`,
 `manim`, `ffmpeg` to start; add a folder to add one), all honouring one
-contract: read `/project/artifacts/05-render/`, write
-`/project/artifacts/final-candidate.mp4` and `/project/artifacts/05-render.log`,
+contract: read `/project/artifacts/07-render/`, write
+`/project/artifacts/final-candidate.mp4` and `/project/artifacts/07-render.log`,
 exit 0 or 1. No network needed at render time; no credentials in the image.
+The `ffmpeg` image is also the studio's media utility: `frames` (six
+stills of the candidate into `07-render-frames/` for the reviewer),
+`probe`, and `publish`. Its `plan.json` is a list of stills — an image or
+a flat colour, a caption, a duration — plus optional audio; enough for
+captioned slideshows and talking-point shorts while the heavier renderers
+are built.
 
 **Publish** (API): `ffprobe` must show H.264 video + AAC audio in MP4,
 `yuv420p`, `+faststart` — if not, the API re-muxes with the `ffmpeg`

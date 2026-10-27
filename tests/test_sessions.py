@@ -52,6 +52,25 @@ def messages_log(tmp_path):
     return tmp_path / "messages.jsonl"
 
 
+def fake_render_run(argv):
+    # Stands in for `docker run` on a renderer image: produces the files the
+    # real images would, so pipelines can reach `published` in tests.
+    from pathlib import Path
+
+    if argv[:2] == ["docker", "image"]:
+        return 0, ""
+    project = Path(argv[argv.index("-v") + 1].split(":/project")[0])
+    cmd = argv[-1]
+    if cmd == "render":
+        (project / "artifacts" / "final-candidate.mp4").write_bytes(b"candidate")
+    elif cmd == "frames":
+        (project / "artifacts" / "07-render-frames").mkdir(exist_ok=True)
+    elif cmd == "publish":
+        (project / "final.mp4").write_bytes(b"final")
+        (project / "preview.jpg").write_bytes(b"\xff\xd8")
+    return 0, f"{cmd} ok"
+
+
 def make_app(workers_dir, templates_dir, sessions_db, messages_log, **overrides):
     kwargs = dict(
         workers_dir=workers_dir,
@@ -61,6 +80,7 @@ def make_app(workers_dir, templates_dir, sessions_db, messages_log, **overrides)
         spawn_fn=fake_spawn_fn,
         stop_fn=fake_stop_fn,
         running_ids_fn=lambda: set(),
+        render_run=fake_render_run,
     )
     kwargs.update(overrides)
     return create_app(**kwargs)

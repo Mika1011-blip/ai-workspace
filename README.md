@@ -70,6 +70,14 @@ Things that live outside git and bit us once each:
    is load-bearing — permission rules match on it — so don't rename it in
    one place only. (`workspace` on its own is a reserved name and silently
    never loads.)
+6. **Build the renderer images** the studio renders with (one per
+   renderer, `docker/renderers/<name>/`; the `ffmpeg` one is also the
+   media utility every project needs for frames and publishing):
+   ```bash
+   docker build -t ai-workspace/renderer-ffmpeg docker/renderers/ffmpeg
+   ```
+   Without it, a project fails at its render step with the docker error in
+   `artifacts/07-render.log`.
 
 ## Where things are
 
