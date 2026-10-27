@@ -112,3 +112,5 @@
 - 2026-10-27 22:38:00 — commit a42037d Zip download of a whole project from the gallery
 - 2026-10-27 22:46:24 — commit 3ab2f32 Per-worker toolkits from a host-vetted catalog
 - 2026-10-27 22:51:41 — commit 122cc49 Code-made images: SVG shots rasterised by the ffmpeg renderer
+- 2026-10-27 22:57:08 — changed: workers/asset-maker/.claude/settings.json
+- 2026-10-27 23:16:03 — commit 8222771 Worker panel: team list with live status, Chat / Stats / Settings

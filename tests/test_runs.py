@@ -238,6 +238,20 @@ class TestListRuns:
         assert record_file(workers_dir, "researcher", second["run_id"]).is_file()
         assert len(client.get("/runs", params={"worker": "researcher"}).json()) == 2
 
+    def test_full_returns_whole_records_and_limit_caps_them(self, client):
+        a, b, c = self._seed(client)
+
+        rows = client.get("/runs", params={"worker": "researcher"}).json()
+        full = client.get("/runs", params={"worker": "researcher", "full": "true"}).json()
+        capped = client.get("/runs", params={"full": "true", "limit": 1}).json()
+
+        assert "metrics" not in rows[0]  # the index row
+        assert {r["run_id"] for r in full} == {a["run_id"], b["run_id"]}
+        assert all("metrics" in r and "result" in r and "tags" in r for r in full)
+        assert next(r for r in full if r["run_id"] == a["run_id"])["error"] == "x"
+        assert len(capped) == 1 and capped[0]["run_id"] == c["run_id"]
+        assert client.get("/runs", params={"limit": 0}).status_code == 422
+
     def test_filters_narrow(self, client):
         a, b, c = self._seed(client)
 

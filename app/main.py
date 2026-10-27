@@ -1232,8 +1232,19 @@ def create_app(
         status: str | None = None,
         tag: list[str] = Query(default=[]),
         since: str | None = None,
+        full: bool = False,
+        limit: int = Query(default=200, ge=1, le=1000),
     ) -> list[dict]:
-        return run_records.list_runs(sessions_db_path, worker, status, tag, since)
+        """The index rows, newest first. `full=true` returns the whole
+        record of each (metrics, result, error) -- what the Stats tab shows."""
+        rows = run_records.list_runs(sessions_db_path, worker, status, tag, since)[:limit]
+        if not full:
+            return rows
+        out = []
+        for row in rows:
+            path = Path(row["path"]) if row.get("path") else None
+            out.append(run_records.read_record(path) if path and path.is_file() else row)
+        return out
 
     @app.get("/sessions")
     def list_sessions(
