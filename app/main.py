@@ -271,7 +271,9 @@ def spawn_argv(
     argument until the next flag, so they go first and the single-valued
     --name sits right before the prompt. Never reorder that.
     """
-    add_dirs = [shared_dir, *read_from, *write_to]
+    # The session's cwd is the worker's folder, so a relative directory here
+    # would silently point nowhere (seen live: the project grant was ignored).
+    add_dirs = [Path(d).resolve() for d in (shared_dir, *read_from, *write_to)]
     return [
         claude_cli(),
         "--bg",
@@ -352,7 +354,9 @@ def create_app(
     running_ids_fn: Callable[[], set[str] | None] | None = None,
     render_run: render.RunFn | None = None,
 ) -> FastAPI:
-    workers_path = Path(workers_dir or os.environ.get("WORKERS_DIR", "workers"))
+    # Resolved once: these paths are handed to other processes (spawned
+    # sessions, docker) whose cwd is not ours.
+    workers_path = Path(workers_dir or os.environ.get("WORKERS_DIR", "workers")).resolve()
     workers_path.mkdir(parents=True, exist_ok=True)
     templates_path = Path(templates_dir or os.environ.get("TEMPLATES_DIR", "worker_templates"))
     sessions_db_path = Path(sessions_db or os.environ.get("SESSIONS_DB", "data/sessions.db"))
@@ -363,7 +367,7 @@ def create_app(
     messages_log_path.parent.mkdir(parents=True, exist_ok=True)
     api_url = api_url or os.environ.get("WORKSPACE_API_URL", "http://localhost:8000")
     shared_dir = workers_path / "_shared"
-    projects_path = Path(projects_dir or os.environ.get("PROJECTS_DIR", "projects"))
+    projects_path = Path(projects_dir or os.environ.get("PROJECTS_DIR", "projects")).resolve()
     projects_path.mkdir(parents=True, exist_ok=True)
     projects.reindex(sessions_db_path, projects_path)
 

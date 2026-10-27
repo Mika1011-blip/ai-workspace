@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -51,6 +52,31 @@ def add_dirs_of(argv):
 
 def rule(path):
     return "//" + path.resolve().as_posix().lstrip("/")
+
+
+class TestGrantedDirectoriesAreAbsolute:
+    def test_relative_configuration_still_grants_absolute_paths(
+        self, tmp_path, monkeypatch, sessions_db, messages_log
+    ):
+        # Production runs with WORKERS_DIR=workers and PROJECTS_DIR=projects,
+        # relative to the API's cwd. The spawned session's cwd is the worker's
+        # folder, so a relative --add-dir pointed nowhere (seen live).
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "projects" / "p" / "artifacts").mkdir(parents=True)
+        c = TestClient(make_app("workers", "worker_templates", sessions_db, messages_log, projects_dir="projects"))
+        create_worker(c, "researcher")
+
+        res = spawn(c, "researcher", write_to=["projects/p/artifacts"])
+
+        assert res.status_code == 201, res.json()
+        argv = SPAWNED[-1][0]
+        dirs = add_dirs_of(argv)
+        assert len(dirs) == 2
+        for d in dirs:
+            assert Path(d).is_absolute(), d
+            assert Path(d).is_dir(), d
+        assert dirs[0] == str((tmp_path / "workers" / "_shared").resolve())
+        assert dirs[1] == str((tmp_path / "projects" / "p" / "artifacts").resolve())
 
 
 class TestVariadicFlagsCannotSwallowThePrompt:
