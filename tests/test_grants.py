@@ -165,4 +165,7 @@ class TestDirectoryGrants:
 
         line = (workers_dir / "researcher" / "activity.jsonl").read_text(encoding="utf-8").splitlines()[0]
         event = json.loads(line)
-        assert event["tools"] == ["WebFetch"] and event["write_to"] == ["projects/p"] and event["read_from"] == []
+        # Logged as the resolved directory the session was actually granted.
+        assert event["tools"] == ["WebFetch"]
+        assert event["write_to"] == [str((projects_dir / "p").resolve())]
+        assert event["read_from"] == []
