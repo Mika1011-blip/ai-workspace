@@ -111,3 +111,4 @@
 - 2026-10-27 22:27:33 — commit c1237d4 Stream session state changes as server-sent events
 - 2026-10-27 22:38:00 — commit a42037d Zip download of a whole project from the gallery
 - 2026-10-27 22:46:24 — commit 3ab2f32 Per-worker toolkits from a host-vetted catalog
+- 2026-10-27 22:51:41 — commit 122cc49 Code-made images: SVG shots rasterised by the ffmpeg renderer
