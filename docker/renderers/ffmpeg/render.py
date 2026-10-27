@@ -42,12 +42,15 @@ def run(argv: list[str], log) -> None:
         raise RuntimeError(f"command failed ({result.returncode}): {argv[0]} ...")
 
 
-def caption_filter(text: str, height: int) -> str:
+def caption_filter(text: str, height: int, tmp: Path, index: int) -> str:
     if not text:
         return "null"
-    safe = text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    # ffmpeg's filter syntax can't escape every character inside text='...'
+    # (an apostrophe breaks it); a textfile has no such problem.
+    caption = tmp / f"caption-{index:02d}.txt"
+    caption.write_text(text, encoding="utf-8")
     return (
-        f"drawtext=fontfile={FONT}:text='{safe}':fontcolor=white:fontsize={max(24, height // 22)}"
+        f"drawtext=fontfile={FONT}:textfile={caption}:fontcolor=white:fontsize={max(24, height // 22)}"
         f":box=1:boxcolor=black@0.55:boxborderw=18:x=(w-text_w)/2:y=h-h/5-text_h"
     )
 
@@ -64,7 +67,7 @@ def render(log) -> None:
         for i, shot in enumerate(shots):
             duration = float(shot.get("duration", 3))
             out = tmp / f"shot-{i:02d}.mp4"
-            vf = f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,{caption_filter(shot.get('text', ''), height)},format=yuv420p"
+            vf = f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,{caption_filter(shot.get('text', ''), height, tmp, i)},format=yuv420p"
             if shot.get("image"):
                 src = ["-loop", "1", "-t", str(duration), "-i", str(ARTIFACTS / shot["image"])]
             else:
@@ -153,7 +156,8 @@ def main(argv: list[str]) -> int:
     if cmd == "probe":
         print(json.dumps(probe(Path(rest[0]))))
         return 0
-    log_path = ARTIFACTS / ("07-render.log" if cmd == "render" else f"07-{cmd}.log")
+    # Same names the API appends to, so each step has exactly one log + sidecar.
+    log_path = ARTIFACTS / {"render": "07-render.log", "frames": "07-frames.log", "publish": "08-publish.log"}.get(cmd, f"{cmd}.log")
     with log_path.open("a", encoding="utf-8") as log:
         try:
             {"render": render, "frames": frames, "publish": publish}[cmd](log)

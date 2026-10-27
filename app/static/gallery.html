@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Studio gallery</title>
+  <style>
+    :root {
+      --ground: #fff; --ink: #1a1a1a; --muted: #595959; --line: #ddd; --panel: #f6f6f6; --danger: #b00020;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; color: var(--ink); background: var(--ground); max-width: 1040px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
+    h2 { margin: 1.5rem 0 0.5rem; font-size: 1.25rem; }
+    h3 { margin: 1rem 0 0.25rem; font-size: 1rem; }
+    a { color: inherit; }
+    nav { margin-bottom: 1rem; color: var(--muted); }
+    button { padding: 0.4rem 1rem; border: 1px solid var(--ink); border-radius: 4px; background: var(--ink); color: var(--ground); cursor: pointer; }
+    button.secondary { background: var(--ground); color: var(--ink); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    input, select, textarea { font: inherit; padding: 0.4rem; border: 1px solid var(--line); border-radius: 4px; }
+    textarea { width: 100%; min-height: 5rem; }
+    .error { color: var(--danger); min-height: 1.2em; margin: 0.5rem 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; list-style: none; padding: 0; }
+    .card { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+    .card a { display: block; text-decoration: none; }
+    .thumb { aspect-ratio: 9 / 12; background: #222; color: #ddd; display: grid; place-items: center; text-align: center; padding: 0.5rem; }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .card .meta { padding: 0.6rem 0.75rem; }
+    .status { font-size: 0.9rem; color: var(--muted); }
+    .create { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: end; margin: 0.5rem 0 1rem; }
+    .create label { display: flex; flex-direction: column; font-size: 0.85rem; }
+    video, audio { width: 100%; max-width: 480px; display: block; }
+    .artifact { border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem 0.75rem; margin: 0.5rem 0; }
+    .artifact .desc { margin: 0.25rem 0; }
+    .artifact .missing { color: var(--danger); }
+    .frames { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .frames img { height: 120px; border: 1px solid var(--line); }
+    pre { white-space: pre-wrap; background: var(--panel); padding: 0.5rem; max-height: 24rem; overflow: auto; }
+    .checkpoint { border: 2px solid var(--ink); border-radius: 8px; padding: 0.75rem 1rem; margin: 1rem 0; }
+    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+    td, th { text-align: left; padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Studio gallery</h1>
+  <nav><a href="#/">All projects</a> · <a href="/">Workers</a></nav>
+  <p class="error" id="error" role="alert"></p>
+
+  <section id="list-view">
+    <form id="create-form" class="create">
+      <label>Slug <input id="c-slug" placeholder="first-reel" required></label>
+      <label>Title <input id="c-title" placeholder="First reel" required></label>
+      <label>Format <input id="c-format" value="social-short" required></label>
+      <label>Renderer
+        <select id="c-renderer"><option>ffmpeg</option><option>remotion</option><option>manim</option></select>
+      </label>
+      <label>Mode
+        <select id="c-mode"><option>guided</option><option>auto</option></select>
+      </label>
+      <button type="submit">Create project</button>
+    </form>
+    <p id="empty" hidden>No projects yet.</p>
+    <ul class="grid" id="projects"></ul>
+  </section>
+
+  <section id="project-view" hidden></section>
+
+  <script>
+    const STATUS = {
+      created: "○ created", running: "◐ running", awaiting_approval: "⏸ awaiting your decision",
+      needs_input: "✋ needs input", failed: "✖ failed", published: "✔ published",
+    };
+    const errorBox = document.getElementById("error");
+    const listView = document.getElementById("list-view");
+    const projectView = document.getElementById("project-view");
+
+    function showError(message) { errorBox.textContent = message || ""; }
+    function el(tag, props = {}, ...children) {
+      const node = document.createElement(tag);
+      for (const [k, v] of Object.entries(props)) {
+        if (k === "class") node.className = v;
+        else if (k === "html") node.innerHTML = v;
+        else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+        else if (v !== null && v !== undefined) node.setAttribute(k, v);
+      }
+      for (const c of children) node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+      return node;
+    }
+    async function api(method, path, body) {
+      const res = await fetch(path, {
+        method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try { detail = (await res.json()).detail || detail; } catch (_) {}
+        throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      }
+      return res.status === 204 ? null : res.json();
+    }
+
+    // --- list ---------------------------------------------------------------
+
+    async function renderList() {
+      listView.hidden = false; projectView.hidden = true; showError("");
+      const projects = await api("GET", "/projects");
+      const ul = document.getElementById("projects");
+      ul.replaceChildren();
+      document.getElementById("empty").hidden = projects.length > 0;
+      for (const p of projects) {
+        const thumb = el("div", { class: "thumb" },
+          p.has_preview ? el("img", { src: `/projects/${p.slug}/preview.jpg`, alt: `${p.title} preview` })
+                        : el("span", {}, p.has_final ? "video ready, no preview" : `no preview yet — ${STATUS[p.status] || p.status}`));
+        const meta = el("div", { class: "meta" },
+          el("strong", {}, p.title),
+          el("div", { class: "status" }, `${p.format} · ${p.renderer} · ${p.mode}`),
+          el("div", { class: "status" }, `${STATUS[p.status] || p.status}${p.stage ? " · " + p.stage : ""}`));
+        ul.append(el("li", { class: "card" }, el("a", { href: `#/p/${p.slug}` }, thumb, meta)));
+      }
+    }
+
+    document.getElementById("create-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const body = {
+          slug: document.getElementById("c-slug").value.trim(),
+          title: document.getElementById("c-title").value.trim(),
+          format: document.getElementById("c-format").value.trim(),
+          renderer: document.getElementById("c-renderer").value,
+          mode: document.getElementById("c-mode").value,
+        };
+        await api("POST", "/projects", body);
+        location.hash = `#/p/${body.slug}`;
+      } catch (e) { showError(e.message); }
+    });
+
+    // --- project ------------------------------------------------------------
+
+    function artifactBody(slug, a) {
+      const url = (name) => `/projects/${slug}/artifacts/${encodeURIComponent(a.path)}${name ? "/" + encodeURIComponent(name) : ""}`;
+      const ext = a.path.split(".").pop().toLowerCase();
+      if (a.is_dir) {
+        const files = a.files || [];
+        const imgs = files.filter((f) => /\.(jpe?g|png|gif|webp)$/i.test(f));
+        if (imgs.length) return el("div", { class: "frames" }, ...imgs.map((f) => el("img", { src: url(f), alt: `${a.path}/${f}` })));
+        return el("ul", {}, ...files.map((f) => el("li", {}, el("a", { href: url(f), target: "_blank" }, f))));
+      }
+      if (["mp4", "webm", "mov"].includes(ext)) return el("video", { controls: "", src: url() });
+      if (["mp3", "wav", "m4a", "aac", "ogg"].includes(ext)) return el("audio", { controls: "", src: url() });
+      if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) return el("img", { src: url(), alt: a.path, style: "max-width:100%" });
+      const pre = el("pre", {}, "loading…");
+      fetch(url()).then((r) => r.text()).then((t) => { pre.textContent = t; }).catch(() => { pre.textContent = "(could not load)"; });
+      const open = ["md", "txt", "json"].includes(ext) && !a.path.endsWith(".log");
+      return el("details", open ? { open: "" } : {}, el("summary", {}, open ? "text" : "log / raw"), pre);
+    }
+
+    function artifactCard(slug, a) {
+      return el("div", { class: "artifact" },
+        el("div", {}, el("strong", {}, a.path), el("span", { class: "status" }, a.kind ? ` · ${a.kind}` : "", a.stage ? ` · ${a.stage}` : "", a.worker ? ` · by ${a.worker}` : "")),
+        a.has_sidecar ? el("p", { class: "desc" }, a.description || "(no description)")
+                      : el("p", { class: "desc missing" }, "⚠ no sidecar — this artifact has no description"),
+        artifactBody(slug, a));
+    }
+
+    async function renderProject(slug) {
+      listView.hidden = true; projectView.hidden = false; showError("");
+      let p;
+      try { p = await api("GET", `/projects/${slug}`); } catch (e) { showError(e.message); projectView.replaceChildren(el("p", {}, "Project not found.")); return; }
+      const canStart = !["running", "awaiting_approval"].includes(p.status);
+      const header = el("div", {},
+        el("h2", {}, p.title, " ", el("span", { class: "status" }, `(${p.slug})`)),
+        el("p", { class: "status" }, `${p.format} · ${p.renderer} · mode ${p.mode} · ${STATUS[p.status] || p.status}${p.stage ? " · stage " + p.stage : ""}`),
+        p.error ? el("p", { class: "error" }, `✖ ${p.error}`) : "",
+        el("div", { class: "actions" },
+          el("button", { onclick: async () => { try { await api("POST", `/projects/${slug}/start`); renderProject(slug); } catch (e) { showError(e.message); } }, disabled: canStart ? null : "" }, "Start pipeline"),
+          el("button", { class: "secondary", onclick: async () => { try { await api("PATCH", `/projects/${slug}`, { mode: p.mode === "auto" ? "guided" : "auto" }); renderProject(slug); } catch (e) { showError(e.message); } } }, `Switch to ${p.mode === "auto" ? "guided" : "auto"}`),
+          el("button", { class: "secondary", onclick: async () => { if (!confirm(`Delete project "${p.title}" and everything in it?`)) return; try { await api("DELETE", `/projects/${slug}`); location.hash = "#/"; } catch (e) { showError(e.message); } } }, "Delete")));
+
+      const final = p.has_final
+        ? el("div", {}, el("h3", {}, "Final video"), el("video", { controls: "", src: `/projects/${slug}/final.mp4`, poster: p.has_preview ? `/projects/${slug}/preview.jpg` : null }))
+        : el("p", { class: "status" }, "No final video yet.");
+
+      let checkpoint = "";
+      if (p.status === "awaiting_approval") {
+        const review = [...p.stages].reverse().find((s) => s.name === p.stage);
+        const notes = el("textarea", { placeholder: "Your notes for the revision (optional for approve/skip)" });
+        const decide = async (decision) => {
+          try { await api("POST", `/projects/${slug}/decision`, { decision, notes: notes.value.trim() || null, by: "mika" }); renderProject(slug); }
+          catch (e) { showError(e.message); }
+        };
+        checkpoint = el("div", { class: "checkpoint" },
+          el("h3", {}, `⏸ Checkpoint after ${p.stage}`),
+          el("p", {}, el("strong", {}, "Reviewer says: "), review && review.summary ? review.summary : "(no notes)"),
+          el("p", { class: "status" }, `Next stage if approved: ${p.next_stage || "publish"}`),
+          notes,
+          el("div", { class: "actions" },
+            el("button", { onclick: () => decide("approve") }, "✔ Approve"),
+            el("button", { class: "secondary", onclick: () => decide("revise") }, "↺ Revise with my notes"),
+            el("button", { class: "secondary", onclick: () => decide("skip") }, "⏭ Skip")));
+      }
+
+      const byStage = new Map();
+      for (const a of p.artifacts) {
+        const key = a.stage || "unassigned";
+        if (!byStage.has(key)) byStage.set(key, []);
+        byStage.get(key).push(a);
+      }
+      const artifacts = el("div", {}, el("h3", {}, `Artifacts (${p.artifacts.length})`));
+      if (!p.artifacts.length) artifacts.append(el("p", { class: "status" }, "Nothing produced yet."));
+      for (const [stage, items] of byStage) {
+        artifacts.append(el("h3", {}, `Stage: ${stage}`), ...items.map((a) => artifactCard(slug, a)));
+      }
+
+      const history = el("table", {},
+        el("thead", {}, el("tr", {}, el("th", {}, "stage"), el("th", {}, "worker"), el("th", {}, "attempt"), el("th", {}, "status"), el("th", {}, "summary"))),
+        el("tbody", {}, ...p.stages.map((s) => el("tr", {}, el("td", {}, s.name), el("td", {}, s.worker), el("td", {}, s.attempt), el("td", {}, `${s.status === "success" ? "✔" : s.status === "failed" ? "✖" : s.status === "running" ? "◐" : "✋"} ${s.status}`), el("td", {}, s.summary || "")))));
+
+      const decisions = el("table", {},
+        el("thead", {}, el("tr", {}, el("th", {}, "when"), el("th", {}, "stage"), el("th", {}, "decision"), el("th", {}, "by"), el("th", {}, "notes"), el("th", {}, "triggered"))),
+        el("tbody", {}, ...p.decisions.map((d) => el("tr", {}, el("td", {}, d.at), el("td", {}, d.stage), el("td", {}, d.decision), el("td", {}, d.by), el("td", {}, d.notes || ""), el("td", {}, d.triggered || "")))));
+
+      projectView.replaceChildren(
+        header, final, checkpoint, artifacts,
+        el("h3", {}, `Stage history (${p.stages.length})`), p.stages.length ? history : el("p", { class: "status" }, "Not started."),
+        el("h3", {}, `Decisions (${p.decisions.length})`), p.decisions.length ? decisions : el("p", { class: "status" }, "None yet."));
+    }
+
+    // --- routing --------------------------------------------------------------
+
+    function route() {
+      const m = location.hash.match(/^#\/p\/([a-z0-9-]{1,40})$/);
+      if (m) renderProject(m[1]).catch((e) => showError(e.message));
+      else renderList().catch((e) => showError(e.message));
+    }
+    window.addEventListener("hashchange", route);
+    route();
+  </script>
+</body>
+</html>

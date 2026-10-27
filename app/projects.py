@@ -80,6 +80,7 @@ def artifacts(project_dir: Path) -> list[dict]:
             {
                 "path": entry.name,
                 "is_dir": entry.is_dir(),
+                "files": sorted(p.name for p in entry.iterdir() if p.is_file()) if entry.is_dir() else None,
                 "size": entry.stat().st_size if entry.is_file() else None,
                 "has_sidecar": bool(sidecar),
                 "kind": sidecar.get("kind"),
