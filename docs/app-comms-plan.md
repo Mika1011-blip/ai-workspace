@@ -30,6 +30,9 @@ POST /sessions
   Validates `agent` exists (an agents/<agent>/ folder with a CLAUDE.md).
   Launches the session scoped to that agent's folder (mirrors the crew's
   `claude --bg --name <agent> "..."`), inserts a `live` row.
+  -> 503 "spawning_disabled" when SPAWN_ENABLED=false. Spawning is
+     host-only: it needs the `claude` CLI and your login, which the
+     Docker image doesn't have, so docker-compose sets this off.
 
 GET /sessions?caller={session_id}
   -> 200, the sessions `caller` may reach: itself, every id in its own

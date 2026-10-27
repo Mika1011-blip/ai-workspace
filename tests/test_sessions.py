@@ -82,6 +82,28 @@ class TestSpawnSession:
 
         assert res.status_code == 400
 
+    def test_disabled_spawning_is_503_and_registers_nothing(
+        self, agents_dir, templates_dir, sessions_db, messages_log
+    ):
+        # What Docker runs: the image has no `claude` CLI, so compose sets
+        # SPAWN_ENABLED=false and the endpoint must refuse cleanly.
+        app = create_app(
+            agents_dir=agents_dir,
+            templates_dir=templates_dir,
+            sessions_db=sessions_db,
+            messages_log=messages_log,
+            spawn_fn=fake_spawn_fn,
+            spawn_enabled=False,
+        )
+        client = TestClient(app)
+        create_agent(client, "researcher")
+
+        res = spawn(client, "researcher")
+
+        assert res.status_code == 503
+        assert res.json()["detail"] == "spawning_disabled"
+        assert sessions_store.get_session(sessions_db, "sess-1") is None
+
 
 class TestListSessions:
     def test_unknown_caller_is_404(self, client):
