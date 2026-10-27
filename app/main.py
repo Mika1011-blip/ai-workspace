@@ -457,7 +457,16 @@ def create_app(
         folder = workers_path / name
         if not (folder / "CLAUDE.md").is_file():
             raise HTTPException(status_code=404, detail=f"Worker '{name}' not found")
-        shutil.rmtree(folder)
+        try:
+            shutil.rmtree(folder)
+        except OSError:
+            # A session's process (typically its MCP server) still has the
+            # folder open -- seen live on Windows after `claude stop`. Not a
+            # server error: tell the caller to end the session and retry.
+            raise HTTPException(
+                status_code=409,
+                detail=f"worker_busy: a process still holds '{name}'; end its sessions and retry",
+            )
 
     @app.get("/templates")
     def list_templates() -> list[Template]:

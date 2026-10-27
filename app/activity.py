@@ -19,7 +19,10 @@ def log(workers_path: Path, worker: str, event: str, fields: dict | None = None)
         **(fields or {}),
     }
     path = path_for(workers_path, worker)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    # A deleted worker gets no ghost folder: reconciling or ending a session
+    # whose worker is gone must not resurrect `workers/<name>/` (seen live).
+    if not path.parent.is_dir():
+        return
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
 
