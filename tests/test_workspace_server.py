@@ -185,3 +185,115 @@ def test_write_skill_handles_empty_response_body(monkeypatch):
     result = ws.write_skill("time-teller", "tz-lookup", "# tz-lookup\n")
 
     assert result == {"status_code": 201}
+
+
+def test_delete_agent_calls_delete_endpoint(monkeypatch):
+    calls = []
+
+    def fake_delete(url):
+        calls.append(url)
+        return FakeResponse(204, content=b"")
+
+    monkeypatch.setattr(ws.httpx, "delete", fake_delete)
+
+    result = ws.delete_agent("time-teller")
+
+    assert calls == [f"{ws.API_BASE_URL}/agents/time-teller"]
+    assert result == {"deleted": "time-teller"}
+
+
+def test_delete_agent_raises_on_missing_agent(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "delete", lambda url: FakeResponse(404))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.delete_agent("does-not-exist")
+
+
+def test_delete_agent_raises_on_invalid_name(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "delete", lambda url: FakeResponse(400))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.delete_agent("Bad Name")
+
+
+def test_spawn_session_posts_agent_and_task(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ws, "SESSION_ID", "caller-1")
+
+    def fake_post(url, json):
+        calls.append((url, json))
+        return FakeResponse(201, {"session_id": "sess-1", "agent": "researcher", "status": "live"})
+
+    monkeypatch.setattr(ws.httpx, "post", fake_post)
+
+    result = ws.spawn_session("researcher", "find today's news")
+
+    assert calls == [
+        (
+            f"{ws.API_BASE_URL}/sessions",
+            {"agent": "researcher", "task": "find today's news", "spawned_by": "caller-1"},
+        )
+    ]
+    assert result == {"session_id": "sess-1", "agent": "researcher", "status": "live"}
+
+
+def test_spawn_session_raises_on_unknown_agent(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "post", lambda url, json: FakeResponse(404))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.spawn_session("does-not-exist", "task")
+
+
+def test_list_sessions_gets_with_caller(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ws, "SESSION_ID", "caller-1")
+
+    def fake_get(url, params):
+        calls.append((url, params))
+        return FakeResponse(200, [{"session_id": "caller-1"}])
+
+    monkeypatch.setattr(ws.httpx, "get", fake_get)
+
+    result = ws.list_sessions()
+
+    assert calls == [(f"{ws.API_BASE_URL}/sessions", {"caller": "caller-1"})]
+    assert result == [{"session_id": "caller-1"}]
+
+
+def test_list_sessions_raises_on_unknown_caller(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "get", lambda url, params: FakeResponse(404))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.list_sessions()
+
+
+def test_send_to_session_posts_message(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ws, "SESSION_ID", "caller-1")
+
+    def fake_post(url, json):
+        calls.append((url, json))
+        return FakeResponse(202, {"delivered": True})
+
+    monkeypatch.setattr(ws.httpx, "post", fake_post)
+
+    result = ws.send_to_session("sess-2", "hi")
+
+    assert calls == [
+        (f"{ws.API_BASE_URL}/sessions/sess-2/messages", {"from": "caller-1", "text": "hi"})
+    ]
+    assert result == {"delivered": True}
+
+
+def test_send_to_session_raises_on_unknown_session(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "post", lambda url, json: FakeResponse(404))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.send_to_session("does-not-exist", "hi")
+
+
+def test_send_to_session_raises_when_not_allowed(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "post", lambda url, json: FakeResponse(403))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.send_to_session("sess-2", "hi")

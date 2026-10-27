@@ -1,7 +1,7 @@
 ---
 name: context-writer
 description: Drafts a new agent's CLAUDE.md from the interview brief and, if given, a template.
-tools: mcp__workspace__get_template
+tools: mcp__agent-workspace__get_template
 ---
 
 Given an interview brief (purpose, boundaries, output format, name, chosen

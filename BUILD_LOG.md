@@ -40,3 +40,36 @@
 - 2026-10-27 14:40:11 — commit 2baa060 Fix ultrareview findings: non-interactive interviewer, dev deps
 - 2026-10-27 14:59:06 — commit 58051db Update build log
 - 2026-10-27 15:01:25 — commit 445b70f Merge remote-tracking branch 'origin/main' into worktree-master-agent
+- 2026-10-27 15:02:43 — changed: .claude/worktrees/master-agent/, .claude/worktrees/templates/, .claude/worktrees/wizard/, agents/demo-agent/CLAUDE.md
+- 2026-10-27 15:36:40 — changed: agents/demo-agent/CLAUDE.md
+- 2026-10-27 15:42:01 — changed: agents/demo-agent/CLAUDE.md
+- 2026-10-27 15:51:51 — changed: agents/app-master/.claude/settings.json, agents/demo-agent/CLAUDE.md
+- 2026-10-27 16:04:39 — changed: agents/app-master/.claude/agents/context-writer.md, agents/app-master/.claude/agents/interviewer.md, agents/app-master/.claude/settings.json, agents/app-master/.mcp.json, agents/app-master/CLAUDE.md, agents/demo-agent/CLAUDE.md
+- 2026-10-27 16:34:05 — changed: agents/app-master/.claude/agents/context-writer.md, agents/app-master/.claude/agents/interviewer.md, agents/app-master/.claude/settings.json, agents/app-master/.mcp.json, agents/app-master/CLAUDE.md, agents/ai-news-digest/CLAUDE.md, agents/demo-agent/CLAUDE.md
+- 2026-10-27 16:35:07 — changed: agents/app-master/.claude/agents/context-writer.md, agents/app-master/.claude/agents/interviewer.md, agents/app-master/.claude/settings.json, agents/app-master/.mcp.json, agents/app-master/CLAUDE.md, mcp_server/tests/test_workspace_server.py, mcp_server/workspace_server.py, agents/ai-news-digest/CLAUDE.md, agents/demo-agent/CLAUDE.md
+- 2026-10-27 17:00:22 — changed: agents/app-master/.claude/agents/context-writer.md, agents/app-master/.claude/agents/interviewer.md, agents/app-master/.claude/settings.json, agents/app-master/.mcp.json, agents/app-master/CLAUDE.md, agents/feature-test-agent/CLAUDE.md, agents/test-b/CLAUDE.md, agents/test-c/CLAUDE.md, mcp_server/tests/test_workspace_server.py, mcp_server/workspace_server.py, agents/ai-news-digest/CLAUDE.md, docs/comms-protocol.md
+- 2026-10-27 17:02:09 — changed: agents/app-master/.claude/agents/context-writer.md, agents/app-master/.claude/agents/interviewer.md, agents/app-master/.claude/settings.json, agents/app-master/.mcp.json, agents/app-master/CLAUDE.md, agents/feature-test-agent/CLAUDE.md, agents/test-b/CLAUDE.md, agents/test-c/CLAUDE.md, mcp_server/tests/test_workspace_server.py, mcp_server/workspace_server.py, agents/ai-news-digest/CLAUDE.md, docs/comms-protocol.md
+- 2026-10-27 17:04:24 — changed: agents/app-master/.claude/agents/context-writer.md, agents/app-master/.claude/agents/interviewer.md, agents/app-master/.claude/settings.json, agents/app-master/.mcp.json, agents/app-master/CLAUDE.md, agents/feature-test-agent/CLAUDE.md, agents/test-b/CLAUDE.md, agents/test-c/CLAUDE.md, mcp_server/tests/test_workspace_server.py, mcp_server/workspace_server.py, agents/ai-news-digest/CLAUDE.md, docs/comms-protocol.md
+- 2026-10-27 17:14:16 — changed: agents/app-master/.claude/agents/context-writer.md, agents/app-master/.claude/agents/interviewer.md, agents/app-master/.claude/settings.json, agents/app-master/.mcp.json, agents/app-master/CLAUDE.md, agents/feature-test-agent/CLAUDE.md, agents/test-b/CLAUDE.md, agents/test-c/CLAUDE.md, mcp_server/tests/test_workspace_server.py, mcp_server/workspace_server.py, agents/ai-news-digest/CLAUDE.md, docs/comms-protocol.md
+- 2026-10-27 17:17:34 — changed: agents/app-master/.claude/agents/context-writer.md, agents/app-master/.claude/agents/interviewer.md, agents/app-master/.claude/settings.json, agents/app-master/.mcp.json, agents/app-master/CLAUDE.md, agents/feature-test-agent/CLAUDE.md, agents/test-b/CLAUDE.md, agents/test-c/CLAUDE.md, mcp_server/tests/test_workspace_server.py, mcp_server/workspace_server.py, agents/ai-news-digest/CLAUDE.md, docs/comms-protocol.md
+- 2026-10-27 17:19:17 — changed: agents/app-master/.claude/agents/context-writer.md, agents/app-master/.claude/agents/interviewer.md, agents/app-master/.claude/settings.json, agents/app-master/.mcp.json, agents/app-master/CLAUDE.md, agents/feature-test-agent/CLAUDE.md, agents/test-b/CLAUDE.md, agents/test-c/CLAUDE.md, mcp_server/tests/test_workspace_server.py, mcp_server/workspace_server.py, agents/ai-news-digest/CLAUDE.md, docs/comms-protocol.md
+- 2026-10-27 17:23:44 — commit 9e1c630 Add crew comms protocol tooling, app comms plan, delete_agent MCP tool, and app-master MCP fixes
+- 2026-10-27 17:23:52 — commit 0fe6d55 Remove placeholder test agents, add ai-news-digest agent
+- 2026-10-27 17:23:59 — commit 7f82a9c Update build log
+- 2026-10-27 17:33:27 — changed: .gitignore, app/main.py, mcp_server/tests/test_workspace_server.py, mcp_server/workspace_server.py, agents/COMMS.md, agents/_shared/README.md, app/sessions_store.py, tests/test_sessions.py
+- 2026-10-27 17:34:19 — commit 6ccc14f Build app-side comms protocol: session registry, endpoints, MCP tools
+- 2026-10-27 17:34:23 — commit efde1eb Update build log
+- 2026-10-27 17:35:53 — commit 4170668 Move agents/COMMS.md into agents/_shared/
+- 2026-10-27 17:35:53 — commit ad7b070 Update build log
+- 2026-10-27 18:00:38 — changed: .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:00:38 — changed: .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:01:48 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:01:54 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:01:59 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:02:00 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:02:04 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:02:20 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:03:21 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:03:26 — changed: .claude/skills/spawn-worker/SKILL.md, .claude/crew/roles/ping-tester.md
+- 2026-10-27 18:06:49 — commit 0a66ceb Reorganize: scorecard into docs/history, one tests/ root, drop stale paths
+- 2026-10-27 18:06:50 — commit f2983cc Spawn crew workers in the lead's permission mode; add ping-tester role

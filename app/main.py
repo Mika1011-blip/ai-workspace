@@ -1,11 +1,17 @@
+import json
 import os
 import re
 import shutil
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app import sessions_store
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -55,6 +61,30 @@ class Skill(BaseModel):
     content: str
 
 
+class SessionCreate(BaseModel):
+    agent: str
+    task: str
+    spawned_by: str | None = None
+    may_talk_to: list[str] = []
+
+
+class Session(BaseModel):
+    session_id: str
+    agent: str
+    status: str
+    spawned_by: str | None
+    started_at: str
+    ended_at: str | None
+    may_talk_to: list[str]
+
+
+class MessageCreate(BaseModel):
+    from_: str = Field(alias="from")
+    text: str
+
+    model_config = {"populate_by_name": True}
+
+
 def starter_instructions(name: str) -> str:
     return f"# {name}\n\nDescribe what this agent does and how it should work.\n"
 
@@ -81,10 +111,48 @@ def parse_template(text: str) -> tuple[str, str]:
     return "", text
 
 
-def create_app(agents_dir: Path | str | None = None, templates_dir: Path | str | None = None) -> FastAPI:
+def default_spawn_fn(agent: str, task: str, agent_folder: Path) -> str:
+    """Launch a real background Claude Code session scoped to `agent_folder`,
+    mirroring the crew's `claude --bg --name <agent> "..."`, and return the
+    session id Claude Code prints."""
+    result = subprocess.run(
+        ["claude", "--bg", "--name", agent, f"Read CLAUDE.md, then: {task}"],
+        cwd=agent_folder,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    parts = [p.strip() for p in result.stdout.strip().split("·")]
+    if len(parts) < 2 or not parts[1]:
+        raise RuntimeError(f"could not parse a session id from: {result.stdout!r}")
+    return parts[1]
+
+
+def create_app(
+    agents_dir: Path | str | None = None,
+    templates_dir: Path | str | None = None,
+    sessions_db: Path | str | None = None,
+    messages_log: Path | str | None = None,
+    spawn_fn: Callable[[str, str, Path], str] | None = None,
+) -> FastAPI:
     agents_path = Path(agents_dir or os.environ.get("AGENTS_DIR", "agents"))
     agents_path.mkdir(parents=True, exist_ok=True)
     templates_path = Path(templates_dir or os.environ.get("TEMPLATES_DIR", "agent_templates"))
+    sessions_db_path = Path(sessions_db or os.environ.get("SESSIONS_DB", "data/sessions.db"))
+    sessions_store.init_db(sessions_db_path)
+    messages_log_path = Path(messages_log or os.environ.get("MESSAGES_LOG", "runs/messages.jsonl"))
+    messages_log_path.parent.mkdir(parents=True, exist_ok=True)
+    spawn = spawn_fn or default_spawn_fn
+
+    def log_message(from_id: str, to_id: str, outcome: str) -> None:
+        entry = {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "from": from_id,
+            "to": to_id,
+            "outcome": outcome,
+        }
+        with messages_log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
 
     app = FastAPI(title="ai-workspace")
 
@@ -185,6 +253,49 @@ def create_app(agents_dir: Path | str | None = None, templates_dir: Path | str |
         skill_dir.mkdir(parents=True, exist_ok=True)
         (skill_dir / "SKILL.md").write_text(body.content, encoding="utf-8")
         return Skill(name=body.skill_name, content=body.content)
+
+    @app.post("/sessions", status_code=201)
+    def spawn_session(body: SessionCreate) -> Session:
+        validate_name(body.agent)
+        agent_folder = agents_path / body.agent
+        if not (agent_folder / "CLAUDE.md").is_file():
+            raise HTTPException(status_code=404, detail=f"Agent '{body.agent}' not found")
+        session_id = spawn(body.agent, body.task, agent_folder)
+        started_at = datetime.now(timezone.utc).isoformat()
+        sessions_store.insert_session(
+            sessions_db_path, session_id, body.agent, body.spawned_by, started_at, body.may_talk_to
+        )
+        return Session(
+            session_id=session_id,
+            agent=body.agent,
+            status="live",
+            spawned_by=body.spawned_by,
+            started_at=started_at,
+            ended_at=None,
+            may_talk_to=body.may_talk_to,
+        )
+
+    @app.get("/sessions")
+    def list_sessions(caller: str) -> list[Session]:
+        reachable = sessions_store.list_reachable(sessions_db_path, caller)
+        if reachable is None:
+            raise HTTPException(status_code=404, detail=f"Session '{caller}' not found")
+        return [Session(**entry) for entry in reachable]
+
+    @app.post("/sessions/{session_id}/messages", status_code=202)
+    def send_message(body: MessageCreate, session_id: str) -> dict:
+        sender = sessions_store.get_session(sessions_db_path, body.from_)
+        target = sessions_store.get_session(sessions_db_path, session_id)
+        if sender is None or target is None:
+            raise HTTPException(status_code=404, detail="unknown_session")
+        if sender["status"] != "live" or target["status"] != "live":
+            log_message(body.from_, session_id, "session_ended")
+            raise HTTPException(status_code=409, detail="session_ended")
+        if body.from_ not in target["may_talk_to"]:
+            log_message(body.from_, session_id, "not_allowed")
+            raise HTTPException(status_code=403, detail="not_allowed")
+        log_message(body.from_, session_id, "delivered")
+        return {"delivered": True}
 
     return app
 
