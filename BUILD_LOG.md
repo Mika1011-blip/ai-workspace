@@ -75,3 +75,4 @@
 - 2026-10-27 18:06:50 — commit f2983cc Spawn crew workers in the lead's permission mode; add ping-tester role
 - 2026-10-27 18:17:10 — commit 51acb2f Make Docker honest: mount templates/data/runs, disable spawning in-container
 - 2026-10-27 18:21:59 — commit 92a7137 Session lifecycle: honest accept, end_session, startup reconciliation
+- 2026-10-27 18:26:27 — commit de89ead Lock down every spawned app session on the command line
