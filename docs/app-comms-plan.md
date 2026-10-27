@@ -80,11 +80,12 @@ every agent it creates)
   `GET /agents` never lists it as an agent — `app/main.py`'s `list_agents`
   already filters on `CLAUDE.md` presence). Every agent's `Read` scope
   includes this folder in addition to its own.
-- `agents/COMMS.md` (worker-facing, positive-only — ships into every new
-  agent): just the one line from `docs/comms-protocol.md` §7 — *"To
-  contact another agent, use list_sessions and send_to_session only."*
-  Nothing about what's denied; an agent only ever reads about what it can
-  do.
+- `agents/_shared/COMMS.md` (worker-facing, positive-only — lives inside
+  the shared folder, since it's the one thing beyond its own folder every
+  wired-up agent needs to read): just the one line from
+  `docs/comms-protocol.md` §7 — *"To contact another agent, use
+  list_sessions and send_to_session only."* Nothing about what's denied;
+  an agent only ever reads about what it can do.
 
 ## 5. Tests (owner: worktree B, for the API; worktree A for the MCP tools)
 

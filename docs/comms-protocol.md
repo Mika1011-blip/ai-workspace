@@ -18,7 +18,7 @@ lead ── spawns ──► build-* sessions        app-master ── spawns �
 | Manager (only writer) | lead session | app-master, **through the API** |
 | Spawns a session with | `claude --bg --name <role> "<brief>"` | MCP tool `spawn_session(agent, task)` |
 | Registry | `.claude/crew/registry.json` (gitignored, per machine) | `data/registry.json` (API writes it, nobody else) |
-| Protocol file | `.claude/crew/COMMS.md` (committed) | `agents/COMMS.md` (committed) |
+| Protocol file | `.claude/crew/COMMS.md` (committed) | `agents/_shared/COMMS.md` (committed) |
 | Send a message | `SendMessage` to the session id | MCP tool `send_to_session(session_id, text)` |
 | May talk to | crew sessions + you | app sessions + app-master + you |
 
@@ -66,4 +66,4 @@ Session ids belong to one machine. They don't travel.
 
 ## 7. What every CLAUDE.md gets (one line)
 Crew: `Before messaging another session, follow @.claude/crew/COMMS.md.`
-App: `To contact another agent, use list_sessions and send_to_session only. Rules: @../COMMS.md`
+App: `To contact another agent, use list_sessions and send_to_session only. Rules: @../_shared/COMMS.md`
