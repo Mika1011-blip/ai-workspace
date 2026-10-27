@@ -114,3 +114,4 @@
 - 2026-10-27 22:51:41 — commit 122cc49 Code-made images: SVG shots rasterised by the ffmpeg renderer
 - 2026-10-27 22:57:08 — changed: workers/asset-maker/.claude/settings.json
 - 2026-10-27 23:16:03 — commit 8222771 Worker panel: team list with live status, Chat / Stats / Settings
+- 2026-10-27 23:20:18 — commit 6c889c4 The 3D factory floor on real state

@@ -39,10 +39,10 @@ state change -- `event: state`, `data: {"at", "session_id", "worker", "status", 
 (default 50), `?limit=N` closes after N events, and a `: keepalive` comment arrives every 15 s.
 
 ## Milestones
-1. `/factory` page: stations from `GET /workers`, simulated `GET /workers/state`, click → side panel, list fallback.
-2. New workers appear as new stations without reloading.
-3. Real status from worker runs (in progress, success, error) and run history in the panel.
-4. Live updates streamed from running sessions (server-sent events); context gauge per station; clear/compact actions in the panel.
+1. `/factory` page: stations from `GET /workers`, simulated `GET /workers/state`, click → side panel, list fallback. — done (`app/static/factory/index.html`; the badge reads LIVE because state is real now)
+2. New workers appear as new stations without reloading. — done (state polled every 10 s)
+3. Real status from worker runs (in progress, success, error) and run history in the panel. — done (recent runs with cost and summary)
+4. Live updates streamed from running sessions (server-sent events); context gauge per station; clear/compact actions in the panel. — done except clear/compact: the API has End session only; clearing or compacting a running context is not exposed by the runner yet.
 
 ## Tests
 - `GET /workers/state` returns one entry per worker, with valid status values.

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Factory floor</title>
+  <style>
+    :root { --ground: #fff; --ink: #1a1a1a; --muted: #595959; --line: #ddd; --panel: #f6f6f6; --danger: #b00020; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; color: var(--ink); background: var(--ground); line-height: 1.45; }
+    header { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
+    header h1 { font-size: 1.2rem; margin: 0; }
+    header nav a { margin-right: 0.75rem; }
+    .mode { font-size: 0.8rem; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--ink); }
+    .mode.simulated { background: #ffe9a8; border-color: #8a6d00; color: #5a4700; font-weight: 700; }
+    .legend { font-size: 0.85rem; color: var(--muted); }
+    main { display: grid; grid-template-columns: 1fr 320px; min-height: calc(100vh - 3.2rem); }
+    @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+    #stage { position: relative; min-height: 420px; background: #eef1f5; }
+    #stage canvas { display: block; width: 100%; height: 100%; }
+    #hint { position: absolute; left: 0.75rem; bottom: 0.5rem; font-size: 0.8rem; color: var(--muted); }
+    aside { border-left: 1px solid var(--line); padding: 0.75rem 1rem; overflow: auto; }
+    @media (max-width: 860px) { aside { border-left: 0; border-top: 1px solid var(--line); } }
+    h2 { font-size: 1.05rem; margin: 0.25rem 0 0.5rem; }
+    h3 { font-size: 0.95rem; margin: 1rem 0 0.25rem; }
+    .status { color: var(--muted); }
+    .badge { display: inline-block; font-size: 0.8rem; padding: 0 0.4rem; border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; }
+    .badge.error { color: var(--danger); border-color: var(--danger); }
+    button { padding: 0.3rem 0.8rem; border: 1px solid var(--ink); border-radius: 4px; background: var(--ground); color: var(--ink); cursor: pointer; }
+    button.danger { color: var(--danger); border-color: var(--danger); }
+    meter { width: 100px; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+    td, th { text-align: left; padding: 0.2rem 0.4rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    details#list-view { padding: 0.5rem 1rem 1rem; border-top: 1px solid var(--line); }
+    details#list-view summary { cursor: pointer; font-weight: 600; }
+    ul.stations { list-style: none; padding: 0; margin: 0.5rem 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0.5rem; }
+    ul.stations li { border: 1px solid var(--line); border-radius: 6px; padding: 0.4rem 0.6rem; cursor: pointer; }
+    ul.stations li.selected { border-color: var(--ink); background: var(--panel); }
+    ul.stations .task { font-size: 0.8rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .error { color: var(--danger); }
+  </style>
+  <script type="importmap">
+    { "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <header>
+    <h1>Factory floor</h1>
+    <nav><a href="/">Workers</a><a href="/gallery">Gallery</a></nav>
+    <span id="mode" class="mode" role="status">connecting…</span>
+    <span class="legend">○ idle · 💭 thinking · 🔧 using tool · ⏸ waiting · ✖ error · ? stale (no news for 60 s)</span>
+  </header>
+  <main>
+    <div id="stage"><p id="hint">Drag to orbit, wheel to zoom, click a station to open it.</p></div>
+    <aside id="panel"><p class="status">Click a station (or a card in the list below) to see what that worker is doing.</p></aside>
+  </main>
+  <details id="list-view" open>
+    <summary>List view (the same data, no 3D)</summary>
+    <ul class="stations" id="stations"></ul>
+  </details>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    // ----- data: the scene draws GET /workers/state and nothing else ------
+    const STATUS = { idle: "○ idle", thinking: "💭 thinking", using_tool: "🔧 using tool", waiting: "⏸ waiting", error: "✖ error", stale: "? stale" };
+    const COLOUR = { idle: 0x9aa3ad, thinking: 0x4f8ef7, using_tool: 0xf2a93b, waiting: 0x7cc47f, error: 0xd63b3b, stale: 0xc8c8c8 };
+    const state = new Map();     // id -> entry
+    let selected = null;
+    const $ = (id) => document.getElementById(id);
+    const el = (tag, attrs = {}, ...kids) => { const n = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (v == null) continue; k === "class" ? (n.className = v) : k.startsWith("on") ? n.addEventListener(k.slice(2), v) : n.setAttribute(k, v); } n.append(...kids.filter((c) => c != null && c !== false)); return n; };
+    const shown = (e) => (!["idle", "error"].includes(e.status) && e.updated_at && Date.now() - new Date(e.updated_at).getTime() > 60_000) ? "stale" : e.status;
+    const shortTask = (t) => { if (!t) return ""; const i = t.indexOf("Task from the master:"); return (i >= 0 ? t.slice(i + 21) : t).split("\n")[0].trim(); };
+    const money = (v) => (v == null ? "–" : `$${Number(v).toFixed(2)}`);
+
+    async function loadState() {
+      try {
+        const entries = await (await fetch("/workers/state")).json();
+        const ids = new Set();
+        for (const e of entries) { ids.add(e.id); state.set(e.id, { ...(state.get(e.id) || {}), ...e }); }
+        for (const id of [...state.keys()]) if (!ids.has(id)) { state.delete(id); removeStation(id); }
+        const simulated = entries.some((e) => e.simulated);
+        const mode = $("mode");
+        mode.textContent = simulated ? "SIMULATED" : "LIVE";
+        mode.className = "mode" + (simulated ? " simulated" : "");
+        syncStations();
+        renderList();
+        if (selected) renderPanel();
+      } catch (err) { $("mode").textContent = "offline"; }
+    }
+    function connectFeed() {
+      const feed = new EventSource("/events?replay=0");
+      feed.addEventListener("state", (msg) => {
+        const e = JSON.parse(msg.data);
+        const prev = state.get(e.worker);
+        if (!prev) { loadState(); return; }   // a worker we have not drawn yet
+        Object.assign(prev, { status: e.status, tool: e.tool, context_used: e.context_used, cost_usd: e.cost_usd, turns: e.turns, updated_at: e.at, session_id: e.session_id });
+        if (e.text) prev.last_text = e.text;
+        syncStations(); renderList(); if (selected === e.worker) renderPanel();
+      });
+    }
+
+    // ----- the floor ------------------------------------------------------
+    const stage = $("stage");
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xeef1f5);
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+    camera.position.set(0, 14, 18);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    stage.prepend(renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0.5, 0); controls.maxPolarAngle = Math.PI / 2.1; controls.minDistance = 6; controls.maxDistance = 60;
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.1));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.2); sun.position.set(8, 16, 6); scene.add(sun);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0xdfe4ea }));
+    floor.rotation.x = -Math.PI / 2; scene.add(floor);
+    scene.add(new THREE.GridHelper(60, 30, 0xc5ccd6, 0xd5dbe3));
+
+    function resize() {
+      const w = stage.clientWidth, h = Math.max(stage.clientHeight, 420);
+      renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(stage); resize();
+
+    // a label is a canvas sprite: icon + text, so status is never colour alone
+    function labelTexture(text, sub) {
+      const c = document.createElement("canvas"); c.width = 512; c.height = 160;
+      const g = c.getContext("2d");
+      g.fillStyle = "rgba(255,255,255,0.92)"; g.strokeStyle = "#1a1a1a"; g.lineWidth = 4;
+      g.beginPath(); g.roundRect(4, 4, 504, 152, 24); g.fill(); g.stroke();
+      g.fillStyle = "#1a1a1a"; g.textAlign = "center"; g.textBaseline = "middle";
+      let size = 56;  // shrink long names until they fit the plate
+      do { g.font = `bold ${size}px system-ui, sans-serif`; size -= 4; } while (g.measureText(text).width > 470 && size > 20);
+      g.fillText(text, 256, 56);
+      g.font = "40px system-ui, sans-serif"; g.fillStyle = "#333"; g.fillText(sub, 256, 116);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+    }
+
+    const stations = new Map();  // id -> {group, lamp, gauge, sprite, status}
+    const clickable = [];
+    function layout() {
+      // the master in the middle, everyone else on a ring around it
+      const ids = [...state.keys()].sort();
+      const master = ids.includes("app-master") ? "app-master" : null;
+      const ring = ids.filter((i) => i !== master);
+      const radius = Math.max(6, ring.length * 0.9);
+      const pos = new Map();
+      if (master) pos.set(master, [0, 0]);
+      ring.forEach((id, i) => { const a = (i / ring.length) * Math.PI * 2; pos.set(id, [Math.cos(a) * radius, Math.sin(a) * radius]); });
+      pos.radius = radius;
+      return pos;
+    }
+    let framed = false;
+    function frame(radius) {
+      // once, when the team is first known: far enough back to see the whole ring
+      if (framed) return;
+      framed = true;
+      // the stage is taller than wide on most screens: pull back by the aspect too
+      const aspect = Math.max(0.6, Math.min(1, stage.clientWidth / Math.max(stage.clientHeight, 1)));
+      const back = (radius * 2.1 + 6) / aspect;
+      camera.position.set(0, back * 0.85, back * 0.7);
+      controls.target.set(0, 0.5, 0); controls.update();
+    }
+    function makeStation(id, isMaster) {
+      const group = new THREE.Group();
+      const desk = new THREE.Mesh(new THREE.BoxGeometry(isMaster ? 3 : 2, 0.8, isMaster ? 3 : 1.4), new THREE.MeshStandardMaterial({ color: isMaster ? 0x5b6b7c : 0x8d99a6 }));
+      desk.position.y = 0.4; group.add(desk);
+      const screen = new THREE.Mesh(new THREE.BoxGeometry(isMaster ? 2.2 : 1.4, 0.9, 0.1), new THREE.MeshStandardMaterial({ color: 0x222831 }));
+      screen.position.set(0, 1.3, -0.4); group.add(screen);
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 16), new THREE.MeshStandardMaterial({ color: COLOUR.idle, emissive: COLOUR.idle, emissiveIntensity: 0.4 }));
+      lamp.position.set(isMaster ? 1.2 : 0.8, 1.05, 0.4); group.add(lamp);
+      const gaugeBg = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.12, 0.12), new THREE.MeshStandardMaterial({ color: 0xffffff }));
+      gaugeBg.position.set(0, 0.86, 0.6); group.add(gaugeBg);
+      const gauge = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.14, 0.14), new THREE.MeshStandardMaterial({ color: 0x4f8ef7 }));
+      gauge.position.set(0, 0.86, 0.6); gauge.scale.x = 0.001; group.add(gauge);
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture(id, STATUS.idle), transparent: true }));
+      sprite.scale.set(3.2, 1, 1); sprite.position.y = 2.4; group.add(sprite);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.08, 8, 24), new THREE.MeshStandardMaterial({ color: 0xf2a93b }));
+      ring.position.set(isMaster ? -1.2 : -0.8, 1.05, 0.4); ring.visible = false; group.add(ring);
+      for (const m of [desk, screen, lamp, gaugeBg]) { m.userData.id = id; clickable.push(m); }
+      scene.add(group);
+      return { group, lamp, gauge, sprite, ring, status: "idle", phase: Math.random() * 6 };
+    }
+    function removeStation(id) {
+      const s = stations.get(id); if (!s) return;
+      scene.remove(s.group); stations.delete(id);
+      for (let i = clickable.length - 1; i >= 0; i--) if (clickable[i].userData.id === id) clickable.splice(i, 1);
+    }
+    function syncStations() {
+      const pos = layout();
+      if (state.size) frame(pos.radius);
+      for (const [id, e] of state) {
+        if (!stations.has(id)) stations.set(id, makeStation(id, id === "app-master"));
+        const s = stations.get(id);
+        const [x, z] = pos.get(id); s.group.position.set(x, 0, z);
+        s.group.lookAt(0, 0, 0); if (id === "app-master") s.group.rotation.set(0, 0, 0);
+        const st = shown(e);
+        if (st !== s.status || s.task !== e.current_task) {
+          s.status = st; s.task = e.current_task;
+          s.lamp.material.color.setHex(COLOUR[st]); s.lamp.material.emissive.setHex(COLOUR[st]);
+          s.sprite.material.map.dispose(); s.sprite.material.map = labelTexture(id, STATUS[st]); s.sprite.material.needsUpdate = true;
+          s.ring.visible = st === "using_tool";
+        }
+        const share = Math.max(0.001, Math.min(1, e.context_used || 0));
+        s.gauge.scale.x = share; s.gauge.position.x = -0.8 + 0.8 * share;
+        s.gauge.material.color.setHex(share > 0.8 ? 0xd63b3b : share > 0.5 ? 0xf2a93b : 0x4f8ef7);
+        s.group.children[0].material.emissive.setHex(id === selected ? 0x334455 : 0x000000);
+      }
+    }
+    // status animations: the lamp and the body move, the label says the word
+    const clock = new THREE.Clock();
+    function animate() {
+      const t = clock.getElapsedTime();
+      for (const s of stations.values()) {
+        const k = t + s.phase;
+        s.group.position.y = 0; s.lamp.material.emissiveIntensity = 0.4;
+        if (s.status === "thinking") { s.lamp.material.emissiveIntensity = 0.5 + 0.5 * Math.sin(k * 4); s.group.position.y = 0.05 * Math.sin(k * 2); }
+        else if (s.status === "using_tool") { s.ring.rotation.y = k * 4; s.ring.rotation.x = k * 2; s.lamp.material.emissiveIntensity = 1; }
+        else if (s.status === "waiting") { s.lamp.material.emissiveIntensity = Math.sin(k * 1.5) > 0 ? 1 : 0.1; }
+        else if (s.status === "error") { s.group.position.x += 0.03 * Math.sin(k * 40) * 0.5; s.lamp.material.emissiveIntensity = 1.2; }
+        s.sprite.material.opacity = s.status === "stale" ? 0.5 : 1;
+      }
+      controls.update(); renderer.render(scene, camera); requestAnimationFrame(animate);
+    }
+    animate();
+
+    // click → the side panel (the raycaster picks the station's parts)
+    const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+    let downAt = null;
+    renderer.domElement.addEventListener("pointerdown", (ev) => { downAt = [ev.clientX, ev.clientY]; });
+    renderer.domElement.addEventListener("pointerup", (ev) => {
+      if (!downAt || Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 4) return;  // it was a drag
+      const r = renderer.domElement.getBoundingClientRect();
+      mouse.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(mouse, camera);
+      const hit = ray.intersectObjects(clickable, false)[0];
+      if (hit) select(hit.object.userData.id);
+    });
+
+    // ----- panel + list (plain HTML, always available) ---------------------
+    function select(id) { selected = id; syncStations(); renderList(); renderPanel(); }
+    async function renderPanel() {
+      const e = state.get(selected); const panel = $("panel");
+      if (!e) { panel.replaceChildren(el("p", { class: "status" }, "Click a station to see what that worker is doing.")); return; }
+      const st = shown(e);
+      const live = ["thinking", "using_tool", "waiting"].includes(st) && e.session_id;
+      panel.replaceChildren(
+        el("h2", {}, e.id, " ", el("span", { class: "badge" + (st === "error" ? " error" : ""), role: "status" }, STATUS[st])),
+        el("p", { class: "status" }, e.current_task ? `${live ? "Task" : "Last task"}: ${shortTask(e.current_task)}` : "No task."),
+        e.tool ? el("p", {}, `🔧 ${e.tool}`) : null,
+        el("p", {}, "context ", el("meter", { min: 0, max: 1, value: e.context_used || 0 }), ` ${Math.round((e.context_used || 0) * 100)}% · cost ${money(e.cost_usd)} · turns ${e.turns ?? "–"}`),
+        e.last_text ? el("p", { class: "status" }, el("em", {}, e.last_text.slice(0, 300))) : null,
+        el("p", { class: "status" }, `updated ${e.updated_at ? new Date(e.updated_at).toLocaleTimeString() : "–"}`),
+        el("p", {}, el("a", { href: `/#/w/${encodeURIComponent(e.id)}` }, "Open in the workers page"), " — chat, stats, edit its CLAUDE.md."),
+        live ? el("p", {}, el("button", { class: "danger", onclick: async () => { if (!confirm(`End ${e.id}'s session now?`)) return; await fetch(`/sessions/${e.session_id}/end`, { method: "POST" }); loadState(); } }, "End session"),
+               el("span", { class: "status" }, " (clear/compact of a running context is not available from the API yet)")) : null,
+        el("h3", {}, "Recent runs"), el("div", { id: "runs" }, el("p", { class: "status" }, "Loading…")));
+      try {
+        const runs = await (await fetch(`/runs?worker=${encodeURIComponent(e.id)}&full=true&limit=5`)).json();
+        $("runs").replaceChildren(runs.length ? el("table", {}, el("tbody", {}, ...runs.map((r) => el("tr", {},
+          el("td", {}, new Date(r.started_at).toLocaleString()), el("td", {}, r.status), el("td", {}, money((r.metrics || {}).cost_usd)),
+          el("td", {}, ((r.result || {}).summary || r.error || "").slice(0, 120)))))) : el("p", { class: "status" }, "No runs yet."));
+      } catch (err) { $("runs").replaceChildren(el("p", { class: "error" }, "Could not load runs.")); }
+    }
+    function renderList() {
+      const ul = $("stations"); ul.replaceChildren();
+      for (const [id, e] of [...state].sort()) {
+        const st = shown(e);
+        ul.append(el("li", { class: id === selected ? "selected" : "", role: "button", tabindex: "0", onclick: () => select(id), onkeydown: (k) => { if (k.key === "Enter" || k.key === " ") { k.preventDefault(); select(id); } } },
+          el("strong", {}, id), " ", el("span", { class: "badge" + (st === "error" ? " error" : ""), role: "status" }, STATUS[st]),
+          el("div", { class: "task" }, e.current_task && ["thinking", "using_tool", "waiting"].includes(st) ? shortTask(e.current_task) : `context ${Math.round((e.context_used || 0) * 100)}% · cost ${money(e.cost_usd)}`)));
+      }
+    }
+
+    loadState().then(connectFeed);
+    setInterval(loadState, 10_000);   // new workers appear without a reload; stale is recomputed
+  </script>
+</body>
+</html>
