@@ -4,3 +4,4 @@ __pycache__/
 .claude/crew/registry.json
 data/sessions.db
 runs/messages.jsonl
+.playwright-mcp/

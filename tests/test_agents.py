@@ -114,6 +114,23 @@ class TestCreateAgent:
         assert claude_md.read_text(encoding="utf-8").startswith("# researcher\n")
         assert res.json() == {"name": "researcher", "instructions": claude_md.read_text(encoding="utf-8")}
 
+    def test_initial_instructions_are_written_in_the_same_call(self, client, agents_dir):
+        res = client.post("/agents", json={"name": "researcher", "instructions": "# researcher\n\nMine.\n"})
+
+        assert res.status_code == 201
+        assert res.json() == {"name": "researcher", "instructions": "# researcher\n\nMine.\n"}
+        assert (agents_dir / "researcher" / "CLAUDE.md").read_text(encoding="utf-8") == "# researcher\n\nMine.\n"
+
+    def test_unencodable_initial_instructions_is_400_and_creates_nothing(self, client, agents_dir):
+        res = client.post(
+            "/agents",
+            content=b'{"name": "researcher", "instructions": "\\ud800"}',
+            headers={"Content-Type": "application/json"},
+        )
+
+        assert res.status_code == 400
+        assert list(agents_dir.iterdir()) == []
+
     def test_single_char_name_is_accepted(self, client, agents_dir):
         res = create(client, "a")
 
