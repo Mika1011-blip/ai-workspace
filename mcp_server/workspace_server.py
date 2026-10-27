@@ -28,6 +28,20 @@ def list_agents() -> list[dict]:
 
 
 @mcp.tool
+def list_agent_names() -> list[str]:
+    """List just the names of every agent in the workspace.
+
+    Calls GET /agents and returns only the `name` field of each entry, to
+    check whether a proposed name is taken without pulling every agent's
+    full CLAUDE.md into context (use `list_agents` instead if you need the
+    instructions too).
+    """
+    response = httpx.get(f"{API_BASE_URL}/agents")
+    response.raise_for_status()
+    return [agent["name"] for agent in response.json()]
+
+
+@mcp.tool
 def create_agent(name: str, instructions: str) -> dict:
     """Create a new agent with the given name and instructions.
 
@@ -105,6 +119,8 @@ def write_skill(name: str, skill_name: str, content: str) -> dict:
         json={"skill_name": skill_name, "content": content},
     )
     response.raise_for_status()
+    if not response.content:
+        return {"status_code": response.status_code}
     return response.json()
 
 

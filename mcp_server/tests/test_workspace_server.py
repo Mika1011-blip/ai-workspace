@@ -12,9 +12,10 @@ from mcp_server import workspace_server as ws
 
 
 class FakeResponse:
-    def __init__(self, status_code: int, payload=None):
+    def __init__(self, status_code: int, payload=None, content: bytes = b"body"):
         self.status_code = status_code
         self._payload = payload
+        self.content = content
         self.request = httpx.Request("GET", "http://test")
 
     def json(self):
@@ -25,6 +26,34 @@ class FakeResponse:
             raise httpx.HTTPStatusError(
                 f"status {self.status_code}", request=self.request, response=self
             )
+
+
+def test_list_agent_names_returns_only_names(monkeypatch):
+    calls = []
+
+    def fake_get(url):
+        calls.append(url)
+        return FakeResponse(
+            200,
+            [
+                {"name": "time-teller", "instructions": "# time-teller\n...\n"},
+                {"name": "nonsense-generator", "instructions": "# nonsense-generator\n...\n"},
+            ],
+        )
+
+    monkeypatch.setattr(ws.httpx, "get", fake_get)
+
+    result = ws.list_agent_names()
+
+    assert calls == [f"{ws.API_BASE_URL}/agents"]
+    assert result == ["time-teller", "nonsense-generator"]
+
+
+def test_list_agent_names_propagates_errors(monkeypatch):
+    monkeypatch.setattr(ws.httpx, "get", lambda url: FakeResponse(500))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        ws.list_agent_names()
 
 
 def test_list_templates_returns_api_payload(monkeypatch):
@@ -146,3 +175,13 @@ def test_write_skill_raises_on_invalid_name(monkeypatch):
 
     with pytest.raises(httpx.HTTPStatusError):
         ws.write_skill("time-teller", "Bad Skill", "# nope\n")
+
+
+def test_write_skill_handles_empty_response_body(monkeypatch):
+    monkeypatch.setattr(
+        ws.httpx, "post", lambda url, json: FakeResponse(201, content=b"")
+    )
+
+    result = ws.write_skill("time-teller", "tz-lookup", "# tz-lookup\n")
+
+    assert result == {"status_code": 201}

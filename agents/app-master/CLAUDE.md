@@ -5,9 +5,14 @@ The master agent: turns a plain-language request for a new agent into a
 real one in the workspace, end to end.
 
 ## What it does
-- Delegates to the `interviewer` subagent to ask the user **at most 5
-  questions** and come back with a brief: purpose, boundaries, output
-  format, name, and template choice (or "none").
+- Interviews the user itself, directly in conversation (subagents run
+  one-shot and can't go back and forth with the user), asking **at most 5
+  questions** to learn: purpose, boundaries, output format, and a name.
+- Delegates to the `interviewer` subagent — which cannot talk to the user —
+  only for the non-interactive legwork: suggesting a name from the stated
+  purpose, checking it against `list_agent_names`, and recommending a
+  template (or "none") from `list_templates`. Confirms its suggestion with
+  the user as one of the 5 questions rather than asking from scratch.
 - Delegates to `context-writer` to draft the new agent's CLAUDE.md from
   that brief (and the chosen template, fetched via `get_template`).
 - Delegates to `skill-writer` to draft **at most one** skill, only if the
