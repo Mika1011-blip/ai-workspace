@@ -77,3 +77,4 @@
 - 2026-10-27 18:21:59 — commit 92a7137 Session lifecycle: honest accept, end_session, startup reconciliation
 - 2026-10-27 18:26:27 — commit de89ead Lock down every spawned app session on the command line
 - 2026-10-27 18:29:59 — commit 752baf8 Prove the sender: per-session token on list_sessions and send_to_session
+- 2026-10-27 18:31:55 — commit 50c09ab One MCP server name everywhere; README for first run on a new machine

@@ -12,7 +12,7 @@
       ],
       "env": {}
     },
-    "mymcp": {
+    "agent-workspace": {
       "type": "stdio",
       "command": "python",
       "args": [
