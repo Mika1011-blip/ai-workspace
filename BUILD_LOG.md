@@ -97,3 +97,4 @@
 - 2026-10-27 20:38:10 — commit a0c92c0 Render and publish: the ffmpeg renderer image, the API render step, browser-safe publish
 - 2026-10-27 20:44:11 — commit a6546e9 Gallery: every project, every artifact, and the checkpoint controls
 - 2026-10-27 20:47:13 — commit 5d2a6f2 Project MCP tools and the producer worker
+- 2026-10-27 20:50:40 — commit 019a540 The eight stage workers and the social-short format skill
