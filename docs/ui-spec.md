@@ -27,7 +27,7 @@ Objects:
 |---|---|---|
 | Master (`app-master`) | a giant friendly robot: visor eyes, chest screen, antenna | eyes and lights follow its status; arms swing while it works, up when upset |
 | Worker station | desk + monitor + lamp; a role prop (typewriter, easel, projector, magnifier…) picked from the worker's name | appears: springy pop-in; idle: lamp dim, screen dark; thinking: lamp pulses, cubes rise; using tool: fan spins + tag with the tool name; waiting: slow blink; error: coral flash, ✖ badge, shake; stale: faded |
-| Worker (the person) | a random, stable mix of skin, hair, clothes and accessory, seeded by the name | wanders the lounge while idle (pauses, looks around), runs to the desk when work arrives, sits and types while busy (thought bubble / sweat drop), stands by the desk upset on error |
+| Worker (the person) | a random, stable mix of skin, hair, clothes and accessory, seeded by the name | roams the whole floor while idle, with a preference for the lounge (pauses, looks around), walks to the desk when work arrives, sits and types while busy (thought bubble / sweat drop), stands by the desk upset on error |
 | Context gauge | a pile of cubes beside the desk, grows with `context_used` | colour shifts to coral past 80 % |
 | Showroom | a small cinema tile with a marquee | clicking opens the gallery panel; a new published video lights the marquee |
 | Name tag | white pill tag pinned above each station with the worker's name; a tool tag while using a tool, an "✖ error" tag on error | |

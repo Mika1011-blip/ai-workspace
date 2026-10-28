@@ -53,7 +53,9 @@ export interface Bounds { x0: number; y0: number; x1: number; y1: number }
 const people = new Map<string, Person>();
 
 /** Advance one person by `dt` seconds. `seat` is where they sit at their desk. */
-export function step(id: string, status: StationStatus, seat: Pt, bounds: Bounds, nav: Nav, t: number, dt: number): Person {
+/** `bounds` is where an idle worker may go (the whole floor); `home`, if
+ * given, is the lounge they prefer: most wander targets land there. */
+export function step(id: string, status: StationStatus, seat: Pt, bounds: Bounds, nav: Nav, t: number, dt: number, home?: Bounds): Person {
   let p = people.get(id);
   if (!p) {
     const start = nav.randomFree("spawn:" + id, bounds.x0, bounds.y0, bounds.x1, bounds.y1) ?? nav.nearestFree([bounds.x0, bounds.y0]);
@@ -68,7 +70,8 @@ export function step(id: string, status: StationStatus, seat: Pt, bounds: Bounds
   if (p.mood === "wander") {
     if (!p.route.length && t >= p.nextPick) {
       const k = Math.floor(t / 7 + rng("phase:" + id)() * 7);
-      const target = nav.randomFree(`${id}:wander:${k}`, bounds.x0, bounds.y0, bounds.x1, bounds.y1);
+      const area = home && rng(`${id}:where:${k}`)() < 0.55 ? home : bounds;
+      const target = nav.randomFree(`${id}:wander:${k}`, area.x0, area.y0, area.x1, area.y1);
       if (target) p.route = nav.path(p.pos, target) ?? [];
       p.nextPick = t + 6 + rng(`${id}:${k}`)() * 6;
       p.pauseUntil = t + 1 + rng(`${id}:p${k}`)() * 2; // look around first
