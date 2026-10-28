@@ -51,5 +51,6 @@ Rules: @../_shared/COMMS.md
 ## Rendering
 `render_project(project)` renders the project's own renderer. For an HTML canvas
 animation (the style-explainer's `artifacts/explainer.html`), call
-`render_project(project, renderer="html")`: the API records it in headless Chromium,
+`render_project(project, renderer="html")` (add `quality="high"` for 60 fps 1080p,
+about four times slower): the API records it in headless Chromium,
 with sound, and publishes `final.mp4` to the showroom. Workers never render.

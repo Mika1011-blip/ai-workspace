@@ -269,7 +269,7 @@ def assign_task(project: str, worker: str, task: str, tools: list[str] | None = 
 
 
 @mcp.tool
-def render_project(project: str, renderer: str | None = None) -> dict:
+def render_project(project: str, renderer: str | None = None, quality: str | None = None) -> dict:
     """Render and publish a project: the API runs the renderer image,
     extracts frames, and publishes a browser-safe final.mp4 + preview.jpg.
     `renderer` overrides the project's renderer: "ffmpeg" renders the
@@ -277,6 +277,8 @@ def render_project(project: str, renderer: str | None = None) -> dict:
     records an HTML canvas animation (artifacts/explainer.html or
     artifacts/07-render/*.html, with window.seek / window.DURATION, sound
     from SOUND.renderOffline) -- use it for the style-explainer's work.
+    `quality` (html only): "standard" (30 fps) or "high" (60 fps, 1080p,
+    near-lossless; takes about four times longer).
     Returns the manifest, now `published`. Calls POST
     /projects/{project}/render; raises an error if there is nothing to
     render or the render fails (the project is then `failed`, with the
@@ -284,7 +286,7 @@ def render_project(project: str, renderer: str | None = None) -> dict:
     """
     response = httpx.post(
         f"{API_BASE_URL}/projects/{project}/render",
-        params={"renderer": renderer} if renderer else None,
+        params={k: v for k, v in {"renderer": renderer, "quality": quality}.items() if v} or None,
         headers=_auth(), timeout=900,
     )
     response.raise_for_status()

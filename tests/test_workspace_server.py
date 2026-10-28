@@ -405,10 +405,12 @@ def test_render_project_posts_with_a_long_timeout(monkeypatch):
 
     result = ws.render_project("first-reel")
     ws.render_project("first-reel", renderer="html")
+    ws.render_project("first-reel", renderer="html", quality="high")
 
     assert calls == [
         (f"{ws.API_BASE_URL}/projects/first-reel/render", None, {}, 900),
         (f"{ws.API_BASE_URL}/projects/first-reel/render", {"renderer": "html"}, {}, 900),
+        (f"{ws.API_BASE_URL}/projects/first-reel/render", {"renderer": "html", "quality": "high"}, {}, 900),
     ]
     assert result["status"] == "published"
 

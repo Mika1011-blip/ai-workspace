@@ -14,6 +14,7 @@ from typing import Callable
 
 IMAGE_PREFIX = "ai-workspace/renderer-"
 UTILITY = "ffmpeg"
+QUALITIES = {"standard", "high"}
 
 RunFn = Callable[[list[str]], tuple[int, str]]
 
@@ -69,18 +70,20 @@ class Renderer:
     def __init__(self, run: RunFn = default_run):
         self.run = run
 
-    def _step(self, project_dir: Path, image: str, cmd: str, log_name: str, stage: str) -> tuple[bool, str]:
-        code, output = self.run(docker_argv(image, project_dir, cmd))
+    def _step(self, project_dir: Path, image: str, cmd: str, log_name: str, stage: str, *extra: str) -> tuple[bool, str]:
+        code, output = self.run(docker_argv(image, project_dir, cmd, *extra))
         log = project_dir / "artifacts" / log_name
         with log.open("a", encoding="utf-8") as f:
             f.write(f"--- api: docker {cmd} ({image}) exit {code}\n{output}\n")
         _sidecar(project_dir, log_name, "log", stage, f"What the {image} renderer printed for `{cmd}`.")
         return code == 0, output
 
-    def render(self, project_dir: Path, renderer: str) -> tuple[bool, str]:
+    def render(self, project_dir: Path, renderer: str, quality: str | None = None) -> tuple[bool, str]:
         """artifacts/07-render/ -> artifacts/final-candidate.mp4, then frames
-        for the reviewer. Returns (ok, output)."""
-        ok, output = self._step(project_dir, renderer, "render", "07-render.log", "render")
+        for the reviewer. `quality` (standard | high) is passed to renderers
+        that take it (html). Returns (ok, output)."""
+        extra = (quality,) if quality and renderer == "html" else ()
+        ok, output = self._step(project_dir, renderer, "render", "07-render.log", "render", *extra)
         if not ok or not (project_dir / "artifacts" / "final-candidate.mp4").is_file():
             return False, output or "renderer produced no final-candidate.mp4"
         _sidecar(project_dir, "final-candidate.mp4", "video", "render", "Render candidate, before the publish check.")

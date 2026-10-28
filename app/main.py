@@ -1047,6 +1047,7 @@ def create_app(
     @app.post("/projects/{slug}/render")
     def render_project(
         slug: str, renderer_name: str | None = Query(default=None, alias="renderer"),
+        quality: str | None = Query(default=None),
         x_session_token: str | None = Header(default=None),
     ) -> dict:
         """Render and publish a project (dispatch mode's counterpart of the
@@ -1059,6 +1060,8 @@ def create_app(
             if renderer_name not in projects.RENDERERS:
                 raise HTTPException(status_code=400, detail=f"bad_renderer: one of {sorted(projects.RENDERERS)}")
             manifest["renderer"] = renderer_name
+        if quality is not None and quality not in render.QUALITIES:
+            raise HTTPException(status_code=400, detail=f"bad_quality: one of {sorted(render.QUALITIES)}")
         if not render.has_input(folder, manifest["renderer"]):
             hint = "artifacts/07-render/*.html or artifacts/explainer.html" if manifest["renderer"] == "html" else "artifacts/07-render/"
             raise HTTPException(status_code=409, detail=f"nothing_to_render: {hint} is missing")
@@ -1075,7 +1078,7 @@ def create_app(
                 }
             )
 
-        ok, output = renderer.render(folder, manifest["renderer"])
+        ok, output = renderer.render(folder, manifest["renderer"], quality)
         log("render", ok, output)
         if ok:
             ok, output = renderer.publish(folder)
