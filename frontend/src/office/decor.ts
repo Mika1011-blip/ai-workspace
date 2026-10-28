@@ -99,44 +99,6 @@ export function drawDecor(ctx: CanvasRenderingContext2D, P: Project, s: number, 
   }
 }
 
-// ---------- the office cat ----------
-let cat = { pos: [0, 0] as Pt, target: [0, 0] as Pt, next: 0, init: false, facing: 1 as 1 | -1, stride: 0 };
-export function stepCat(t: number, dt: number, x0: number, y0: number, x1: number, y1: number): typeof cat {
-  if (!cat.init) { cat = { ...cat, pos: [lerp(x0, x1, 0.5), lerp(y0, y1, 0.5)], target: [x0, y0], next: t, init: true }; }
-  if (t >= cat.next) {
-    const r = rng("cat" + Math.floor(t));
-    cat.target = [lerp(x0, x1, r()), lerp(y0, y1, r())];
-    cat.next = t + 4 + r() * 8;
-  }
-  const dx = cat.target[0] - cat.pos[0], dy = cat.target[1] - cat.pos[1], dist = Math.hypot(dx, dy);
-  if (dist > 0.03) {
-    const sl = Math.min(dist, 0.7 * dt);
-    cat.pos = [cat.pos[0] + (dx / dist) * sl, cat.pos[1] + (dy / dist) * sl];
-    cat.stride += sl * 8;
-    if (Math.abs(dx - dy) > 0.05) cat.facing = dx - dy > 0 ? 1 : -1;
-  }
-  return cat;
-}
-export function drawCat(ctx: CanvasRenderingContext2D, p: Pt, s: number, moving: boolean, facing: 1 | -1, theme: Theme, t: number): void {
-  const k = Math.min(1, s / 30);
-  ctx.save(); ctx.translate(p[0], p[1]); ctx.scale(facing * k, k);
-  ctx.fillStyle = "rgba(80,70,140,0.15)"; ctx.beginPath(); ctx.ellipse(0, 1, 7, 2.5, 0, 0, 7); ctx.fill();
-  ctx.fillStyle = "#f2c39a";
-  ctx.beginPath(); ctx.ellipse(0, -3, 6, 3.2, 0, 0, 7); ctx.fill();
-  ctx.strokeStyle = theme.edge.color; ctx.lineWidth = theme.edge.width * 0.7; ctx.stroke();
-  ctx.beginPath(); ctx.arc(5.5, -5.5, 2.8, 0, 7); ctx.fill(); ctx.stroke();
-  for (const sx of [-1, 1]) { ctx.beginPath(); ctx.moveTo(5.5 + sx * 2.2, -7); ctx.lineTo(5.5 + sx * 1.6, -10); ctx.lineTo(5.5 + sx * 0.4, -7.5); ctx.closePath(); ctx.fill(); }
-  // tail
-  ctx.strokeStyle = "#e0a070"; ctx.lineWidth = 1.6; ctx.lineCap = "round";
-  ctx.beginPath(); ctx.moveTo(-6, -3); ctx.quadraticCurveTo(-10, -4 + Math.sin(t * 3) * 3, -9, -9 + Math.sin(t * 2) * 2); ctx.stroke();
-  // legs
-  ctx.strokeStyle = "#e0a070"; ctx.lineWidth = 1.4;
-  const sw = moving ? Math.sin(cat.stride) * 2 : 0;
-  ctx.beginPath(); ctx.moveTo(-3, -1); ctx.lineTo(-3 + sw, 1); ctx.moveTo(3, -1); ctx.lineTo(3 - sw, 1); ctx.stroke();
-  ctx.fillStyle = theme.ink; ctx.beginPath(); ctx.arc(6.5, -6, 0.5, 0, 7); ctx.fill();
-  ctx.restore();
-}
-
 /** Birds crossing the sky, dust motes in the light: tiny, cheap, alive. */
 export function drawAmbience(ctx: CanvasRenderingContext2D, W: number, H: number, t: number, theme: Theme): void {
   // dust motes

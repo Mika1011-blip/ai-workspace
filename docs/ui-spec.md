@@ -30,8 +30,11 @@ Objects:
 | Worker (the person) | a random, stable mix of skin, hair, clothes and accessory, seeded by the name | wanders the lounge while idle (pauses, looks around), runs to the desk when work arrives, sits and types while busy (thought bubble / sweat drop), stands by the desk upset on error |
 | Context gauge | a pile of cubes beside the desk, grows with `context_used` | colour shifts to coral past 80 % |
 | Showroom | a small cinema tile with a marquee | clicking opens the gallery panel; a new published video lights the marquee |
-| Name tags | white pill tag pinned above each station with icon + status word | never colour alone |
-| Decor | sofa, rug, coffee corner (steam), water cooler (bubbles), bookshelf, whiteboard, plants, lamps (flicker), trees, the office cat (wanders), birds, dust motes, a band of sunlight drifting over the tile | ambiance only, no meaning |
+| Name tag | white pill tag pinned above each station with the worker's name; a tool tag while using a tool, an "✖ error" tag on error | |
+| Desk lamp + screen | the lamp's colour is the state (grey off = idle, blue pulse = thinking, amber = using tool, green blink = waiting, coral = error, pale = stale); the screen says it too: "zZ", scrolling work lines, a turning gear with the tool name, a blinking "?", "✖", static for stale. A legend sits bottom right. | never colour alone |
+| Walkable floor | a 0.5-unit nav grid (`src/office/nav.ts`) with desks, the robot, the showroom, furniture and trees blocked out; people and animals walk A* routes over it, never through things | |
+| Decor | sofa, rug, coffee corner (steam), water cooler (bubbles), bookshelf, whiteboard, nine potted plants, floor lamps (flicker), trees, dust motes, a band of sunlight drifting over the tile | ambiance only, no meaning |
+| Animals | the office cat (lounge), a dog (whole floor), a sparrow that lands, hops and flies off, butterflies by the plants, birds crossing the sky | ambiance only |
 | Floor text | "Mika's media producer office" and "created by mika1011-blip.github.io" painted along the front edge | |
 
 Clicking a station opens that worker's panel. Drag pans the camera within

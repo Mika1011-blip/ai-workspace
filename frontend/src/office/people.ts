@@ -1,10 +1,12 @@
 // The people of the office: every worker has a look of their own (seeded by
 // name, so it never changes between reloads) and a life of their own: they
-// wander the floor while idle, run to their desk when work arrives, sit and
-// type while busy, and sulk when something went wrong.
+// wander the lounge while idle, walk to their desk when work arrives, sit
+// and type while busy, and sulk when something went wrong. Walking follows
+// the nav grid, so nobody passes through a desk or a sofa.
 
 import { type Pt, type Style, lerp, mix, rgba, rng } from "../iso/core";
 import type { Theme } from "../theme";
+import type { Nav } from "./nav";
 import type { StationStatus } from "./scene";
 
 export interface Look {
@@ -38,12 +40,11 @@ export type Mood = "wander" | "toDesk" | "seated" | "upset";
 export interface Person {
   id: string;
   pos: Pt; // tile units
-  target: Pt;
+  route: Pt[]; // waypoints still to walk
   mood: Mood;
   facing: 1 | -1;
   nextPick: number; // scene time when a new wander target is chosen
   pauseUntil: number;
-  speed: number; // tile units per second
   stride: number; // walk-cycle phase
 }
 
@@ -51,65 +52,64 @@ export interface Bounds { x0: number; y0: number; x1: number; y1: number }
 
 const people = new Map<string, Person>();
 
-function wanderTarget(id: string, k: number, b: Bounds): Pt {
-  const r = rng(`${id}:wander:${k}`);
-  return [lerp(b.x0, b.x1, r()), lerp(b.y0, b.y1, r())];
-}
-
 /** Advance one person by `dt` seconds. `seat` is where they sit at their desk. */
-export function step(id: string, status: StationStatus, seat: Pt, bounds: Bounds, t: number, dt: number): Person {
+export function step(id: string, status: StationStatus, seat: Pt, bounds: Bounds, nav: Nav, t: number, dt: number): Person {
   let p = people.get(id);
   if (!p) {
-    const r = rng("spawn:" + id);
-    p = { id, pos: [lerp(bounds.x0, bounds.x1, r()), lerp(bounds.y0, bounds.y1, r())], target: seat, mood: "wander", facing: 1, nextPick: t, pauseUntil: 0, speed: 1.2, stride: 0 };
+    const start = nav.randomFree("spawn:" + id, bounds.x0, bounds.y0, bounds.x1, bounds.y1) ?? nav.nearestFree([bounds.x0, bounds.y0]);
+    p = { id, pos: start, route: [], mood: "wander", facing: 1, nextPick: t, pauseUntil: 0, stride: 0 };
     people.set(id, p);
   }
   const busy = status === "thinking" || status === "using_tool" || status === "waiting";
-  if (status === "error") p.mood = "upset";
-  else if (busy) { if (p.mood !== "seated") p.mood = "toDesk"; }
-  else if (p.mood === "seated" || p.mood === "toDesk" || p.mood === "upset") { p.mood = "wander"; p.nextPick = t; p.pauseUntil = 0; }
+  if (status === "error") { if (p.mood !== "upset") { p.mood = "upset"; p.route = nav.path(p.pos, nav.nearestFree([seat[0] - 0.7, seat[1] + 0.2])) ?? []; } }
+  else if (busy) { if (p.mood !== "seated" && p.mood !== "toDesk") { p.mood = "toDesk"; p.route = nav.path(p.pos, seat) ?? [seat]; } }
+  else if (p.mood !== "wander") { p.mood = "wander"; p.route = []; p.nextPick = t; p.pauseUntil = 0; }
 
   if (p.mood === "wander") {
-    if (t >= p.nextPick) {
+    if (!p.route.length && t >= p.nextPick) {
       const k = Math.floor(t / 7 + rng("phase:" + id)() * 7);
-      p.target = wanderTarget(id, k, bounds);
+      const target = nav.randomFree(`${id}:wander:${k}`, bounds.x0, bounds.y0, bounds.x1, bounds.y1);
+      if (target) p.route = nav.path(p.pos, target) ?? [];
       p.nextPick = t + 6 + rng(`${id}:${k}`)() * 6;
       p.pauseUntil = t + 1 + rng(`${id}:p${k}`)() * 2; // look around first
     }
-    if (t >= p.pauseUntil) move(p, p.target, 0.9, dt);
+    if (t >= p.pauseUntil) follow(p, 0.9, dt);
   } else if (p.mood === "toDesk") {
-    p.target = seat;
-    if (move(p, seat, 3.2, dt) < 0.05) p.mood = "seated";
+    if (!follow(p, 3.0, dt)) { p.mood = "seated"; p.pos = [seat[0], seat[1]]; }
   } else if (p.mood === "seated") {
     p.pos = [seat[0], seat[1]];
   } else if (p.mood === "upset") {
-    // stands by the desk, fidgeting
-    const side: Pt = [seat[0] - 0.6, seat[1] + 0.2];
-    move(p, side, 1.5, dt);
+    follow(p, 1.5, dt);
   }
   return p;
 }
 
-function move(p: Person, to: Pt, speed: number, dt: number): number {
-  const dx = to[0] - p.pos[0], dy = to[1] - p.pos[1];
-  const dist = Math.hypot(dx, dy);
-  if (dist < 0.02) return 0;
-  const stepLen = Math.min(dist, speed * dt);
-  p.pos = [p.pos[0] + (dx / dist) * stepLen, p.pos[1] + (dy / dist) * stepLen];
-  p.stride += stepLen * 6;
-  // screen-x direction decides which way the body faces
-  const sx = dx - dy;
-  if (Math.abs(sx) > 0.05) p.facing = sx > 0 ? 1 : -1;
-  return dist - stepLen;
+/** Walk along the route; true while there is still somewhere to go. */
+function follow(p: Person, speed: number, dt: number): boolean {
+  let budget = speed * dt;
+  while (p.route.length && budget > 0) {
+    const to = p.route[0];
+    const dx = to[0] - p.pos[0], dy = to[1] - p.pos[1];
+    const dist = Math.hypot(dx, dy);
+    if (dist < 0.03) { p.route.shift(); continue; }
+    const stepLen = Math.min(dist, budget);
+    p.pos = [p.pos[0] + (dx / dist) * stepLen, p.pos[1] + (dy / dist) * stepLen];
+    p.stride += stepLen * 6;
+    budget -= stepLen;
+    const sx = dx - dy; // screen-x direction decides which way the body faces
+    if (Math.abs(sx) > 0.05) p.facing = sx > 0 ? 1 : -1;
+  }
+  return p.route.length > 0;
 }
 
+export const isWalking = (p: Person, t: number) => p.route.length > 0 && (p.mood !== "wander" || t >= p.pauseUntil);
 export function forget(id: string): void { people.delete(id); }
 export function reset(): void { people.clear(); }
 
 /** Draw a person at screen point `p` (feet). */
 export function drawPerson(ctx: CanvasRenderingContext2D, p: Pt, s: number, lk: Look, person: Person | null, status: StationStatus, theme: Theme, st: Style, t: number): void {
   const H = 0.95 * s * lk.height * Math.min(1, s / 30);
-  const walking = person ? (person.mood === "wander" && t >= person.pauseUntil && Math.hypot(person.target[0] - person.pos[0], person.target[1] - person.pos[1]) > 0.05) || person.mood === "toDesk" : false;
+  const walking = person ? isWalking(person, t) : false;
   const running = person?.mood === "toDesk";
   const seated = person?.mood === "seated";
   const upset = person?.mood === "upset";
@@ -120,21 +120,17 @@ export function drawPerson(ctx: CanvasRenderingContext2D, p: Pt, s: number, lk: 
   ctx.save();
   ctx.translate(p[0], p[1] - bob);
   ctx.scale(face, 1);
-  // shadow
   ctx.fillStyle = "rgba(80,70,140,0.18)";
   ctx.beginPath(); ctx.ellipse(2, bob + 1, 6, 2.4, 0, 0, 7); ctx.fill();
-  // legs
   ctx.strokeStyle = lk.trousers; ctx.lineWidth = 2.8; ctx.lineCap = "round";
   const legH = seated ? H * 0.3 : H * 0.42;
   ctx.beginPath();
   ctx.moveTo(-2, 0); ctx.lineTo(-2 + swing * 4, -legH);
   ctx.moveTo(2, 0); ctx.lineTo(2 - swing * 4, -legH);
   ctx.stroke();
-  // body
   const bodyTop = -(legH + H * 0.4);
   ctx.fillStyle = upset ? rgba(mix(lk.shirt, theme.accent, 0.5)) : lk.shirt;
   ctx.beginPath(); ctx.roundRect(-4.5, bodyTop, 9, H * 0.4, 3.5); ctx.fill(); edge();
-  // arms
   ctx.strokeStyle = lk.shirt; ctx.lineWidth = 2.4;
   ctx.beginPath();
   if (upset) { ctx.moveTo(-4, bodyTop + 3); ctx.lineTo(-8, bodyTop - 6 + Math.sin(t * 9) * 2); ctx.moveTo(4, bodyTop + 3); ctx.lineTo(8, bodyTop - 6 - Math.sin(t * 9) * 2); }
@@ -142,10 +138,8 @@ export function drawPerson(ctx: CanvasRenderingContext2D, p: Pt, s: number, lk: 
   else { ctx.moveTo(-4, bodyTop + 3); ctx.lineTo(-5 - swing * 5, bodyTop + 11); ctx.moveTo(4, bodyTop + 3); ctx.lineTo(5 + swing * 5, bodyTop + 11); }
   ctx.stroke();
   if (lk.accessory === "bag") { ctx.fillStyle = theme.machineDark; ctx.beginPath(); ctx.roundRect(5, bodyTop + 5, 4, 6, 1); ctx.fill(); }
-  // head
   const headY = bodyTop - 4.6;
   ctx.fillStyle = lk.skin; ctx.beginPath(); ctx.arc(0, headY, 3.9, 0, 7); ctx.fill(); edge();
-  // hair
   ctx.fillStyle = lk.hairColor;
   switch (lk.hair) {
     case "short": ctx.beginPath(); ctx.arc(0, headY - 0.6, 3.9, Math.PI * 1.05, Math.PI * 2.05); ctx.fill(); break;
@@ -155,7 +149,6 @@ export function drawPerson(ctx: CanvasRenderingContext2D, p: Pt, s: number, lk: 
     case "curly": for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.arc(i * 1.7, headY - 3.4, 1.6, 0, 7); ctx.fill(); } break;
     default: break;
   }
-  // face: eyes (closed when seated and typing hard? no: dots) and a mouth
   ctx.fillStyle = theme.ink;
   ctx.beginPath(); ctx.arc(1.2, headY - 0.4, 0.55, 0, 7); ctx.arc(2.8, headY - 0.4, 0.55, 0, 7); ctx.fill();
   ctx.strokeStyle = theme.ink; ctx.lineWidth = 0.6;
@@ -165,8 +158,8 @@ export function drawPerson(ctx: CanvasRenderingContext2D, p: Pt, s: number, lk: 
   if (lk.accessory === "glasses") { ctx.strokeStyle = theme.ink; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.arc(1.2, headY - 0.4, 1.3, 0, 7); ctx.moveTo(4.1, headY - 0.4); ctx.arc(2.8, headY - 0.4, 1.3, 0, 7); ctx.stroke(); }
   if (lk.accessory === "hat") { ctx.fillStyle = theme.accent; ctx.beginPath(); ctx.roundRect(-4.5, headY - 4.8, 9, 2.2, 1); ctx.fill(); ctx.fillRect(-2.5, headY - 8, 5, 3.6); }
   if (lk.accessory === "headphones") { ctx.strokeStyle = theme.machineDark; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(0, headY - 0.8, 4.4, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke(); ctx.fillStyle = theme.machineDark; ctx.fillRect(-5.2, headY - 1.6, 1.8, 2.6); ctx.fillRect(3.4, headY - 1.6, 1.8, 2.6); }
-  // a thought bubble while thinking, a sweat drop while using a tool
   if (status === "thinking" && seated) { ctx.fillStyle = rgba(theme.tagBg, 0.9); for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(4 + i * 2.2, headY - 6 - i * 2.2, 0.8 + i * 0.5, 0, 7); ctx.fill(); } }
   if (status === "using_tool" && seated) { ctx.fillStyle = "#86c5f4"; ctx.beginPath(); ctx.ellipse(5.5, headY - 2 + (t * 10) % 3, 0.9, 1.4, 0, 0, 7); ctx.fill(); }
   ctx.restore();
+  void lerp;
 }
