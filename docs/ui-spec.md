@@ -35,7 +35,7 @@ Objects:
 | Walkable floor | a 0.5-unit nav grid (`src/office/nav.ts`) with desks, the robot, the showroom, furniture and trees blocked out; people and animals walk A* routes over it, never through things | |
 | Decor | sofa, rug, coffee corner (steam), water cooler (bubbles), bookshelf, whiteboard, nine potted plants, floor lamps (flicker), trees, dust motes, a band of sunlight drifting over the tile | ambiance only, no meaning |
 | Animals | the office cat (lounge), a dog (whole floor), a sparrow that lands, hops and flies off, butterflies by the plants, birds crossing the sky | ambiance only |
-| Floor text | "Mika's media producer office" and "created by mika1011-blip.github.io" painted along the right edge, kept clear of furniture | |
+| Floor text | "Mika's Media Production Office" and "created by mika1011-blip.github.io" painted along the right edge, kept clear of furniture | |
 | Sky | a blue-to-warm sky gradient with a soft sun; small far clouds drift behind the island, big pastel clouds drift beneath it (never over the floor); the tile floats | |
 
 Clicking a station opens that worker's panel. Drag pans the camera within
