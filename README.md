@@ -1,24 +1,66 @@
-# ai-workspace
+# ai-workspace — Mika's Media Production Office
 
-A web app to create and manage Claude workers. Each worker is a folder
-`workers/<name>/` with a `CLAUDE.md`. A FastAPI backend owns that folder, a
-small MCP server (`ai-workspace`) exposes the same API to Claude Code
-sessions, and `docs/comms-protocol.md` defines how sessions talk to each
-other — crew sessions on your laptop, app sessions started by the API.
+A tiny AI studio you run from your browser. Every **worker** is a Claude agent
+with its own job description (`workers/<name>/CLAUDE.md`), a desk in an
+isometric office, and only the tools you hand it. You give the **app-master**
+a prompt — *"make a sarcastic 30-second explainer on job hunting"* — and it
+hands the work to the right workers (script, storyboard, animation, review),
+then renders the result into a video. All media is made with code: SVG,
+HTML canvas animations and ffmpeg. No image or video generator APIs.
+
+![The AI office: one desk per worker, the giant robot is the app-master](docs/screenshots/office.png)
+
+| Worker panel (chat · stats · settings) | Showroom of finished videos |
+|---|---|
+| ![Worker panel with live activity](docs/screenshots/worker-panel.png) | ![Showroom](docs/screenshots/gallery.png) |
+
+| Themes, edge lines and hand-drawn grain are adjustable |
+|---|
+| ![Theme panel](docs/screenshots/theme.png) |
+
+## What it does
+
+- **Workers you can create from a sentence.** Name, role, template; the
+  preview is exactly the `CLAUDE.md` that gets written.
+- **A dispatcher.** `app-master` reads the roster, assigns tasks, waits for
+  run records and decides the next hand-off. Every hand-off is logged.
+- **Live office.** Desk lamps show each worker's state (thinking, using a
+  tool, waiting, error) streamed from running sessions over server-sent
+  events; context use, cost and turns per worker.
+- **Code-made media.** SVG→PNG images, ffmpeg videos, and HTML canvas
+  animations recorded frame by frame in headless Chromium — up to
+  1080p / 60 fps with sound.
+- **Safe by default.** A worker sees only its own folder; tools, MCP
+  servers and skills are attached explicitly from a vetted `catalog.json`.
+  App workers never get a shell.
+
+## How it fits together
 
 ```
-browser ──► app/main.py (FastAPI) ──► workers/<name>/CLAUDE.md
-                  ▲                    data/sessions.db · runs/messages.jsonl
-   mcp_server/workspace_server.py      (session registry · message log)
-   = the "ai-workspace" MCP server, used by Claude Code sessions
+browser (/app, React) ──► app/main.py (FastAPI) ──► workers/<name>/CLAUDE.md
+                               │                     projects/<slug>/ (artifacts, final.mp4)
+                               ├─► Claude Agent SDK sessions (one per task)
+                               └─► docker renderers (ffmpeg · html)
+   mcp_server/workspace_server.py = the "ai-workspace" MCP server,
+   the same API as tools for Claude Code sessions (app-master uses it)
 ```
+
+Built with Python 3.12 · FastAPI · Claude Agent SDK · MCP · React 19 +
+TypeScript + Vite · Docker · Playwright · ffmpeg. 380+ pytest tests and a
+vitest suite.
+
+**Requirements:** Python 3.12, Node 20+, Docker Desktop (for rendering), and
+[Claude Code](https://claude.com/claude-code) logged in (`claude login`) —
+workers run on your own Claude login, no API key needed.
 
 ## Run it
 
 ```bash
 pip install -r requirements-dev.txt
-uvicorn app.main:app --reload        # http://127.0.0.1:8000
-pytest                               # run before saying a task is done
+cd frontend && npm install && npm run build && cd ..   # builds the office UI
+uvicorn app.main:app --reload        # open http://127.0.0.1:8000/app/
+pytest                               # backend tests
+cd frontend && npm test              # frontend tests
 
 docker compose up                    # same app in a container; see note below
 ```
@@ -88,10 +130,11 @@ Things that live outside git and bit us once each:
    media utility every project needs for frames and publishing):
    ```bash
    docker build -t ai-workspace/renderer-ffmpeg docker/renderers/ffmpeg
+   docker build -t ai-workspace/renderer-html docker/renderers/html
    ```
    Without it, a project fails at its render step with the docker error in
    `artifacts/07-render.log`.
-7. **The studio has two front doors.** The gallery at `/gallery` (grid of
+7. **The studio has three front doors.** The office at `/app`, the older gallery at `/gallery` (grid of
    projects, every artifact with its description, the checkpoint buttons)
    and the `producer` worker: run `claude` inside `workers/producer` and
    talk to it — it creates and starts projects and turns what you say at a
@@ -104,6 +147,8 @@ Things that live outside git and bit us once each:
 
 | Path | What |
 |---|---|
+| `frontend/` | the React office (`src/office/` scene, `src/iso/` hand-drawn isometric kit) |
+| `docker/renderers/` | ffmpeg and html renderer images |
 | `app/main.py` | every endpoint; `create_app()` is a factory, tests pass temp paths |
 | `app/sessions_store.py` | SQLite session registry |
 | `mcp_server/workspace_server.py` | the `ai-workspace` MCP server: thin HTTP wrappers, never touches disk |
@@ -111,6 +156,6 @@ Things that live outside git and bit us once each:
 | `worker_templates/` | starter `CLAUDE.md`s served by `GET /templates` |
 | `.claude/crew/` | crew protocol (`COMMS.md`), role briefs, the per-machine registry |
 | `.claude/rules/` | conventions per area, loaded by `CLAUDE.md` |
-| `docs/` | contracts: `master-worker.md`, `comms-protocol.md`, `app-comms-plan.md` |
+| `docs/` | contracts and specs: `ui-spec.md`, `animation-studio.md`, `vision-gap.md`, `comms-protocol.md`; screenshots in `docs/screenshots/` |
 
 `BUILD_LOG.md` is written by hooks — don't edit it by hand.
