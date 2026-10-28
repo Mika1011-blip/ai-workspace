@@ -60,13 +60,13 @@ export function decorFor(W: number, D: number, rows: number): Decor[] {
   return [
     { kind: "rug", x: W / 2 - 1.6, y: D - 8.2, r: 3.4 },
     { kind: "sofa", x: W - 4.2, y: D - 3.2 },
-    { kind: "coffee", x: W - 2.2, y: y },
-    { kind: "cooler", x: W - 1.2, y: y + 1.6 },
+    { kind: "coffee", x: 3.4, y: y + 0.3 },
+    { kind: "cooler", x: 5.3, y: y + 0.6 },
     { kind: "shelf", x: 5.2, y: D - 1.9 },
     { kind: "whiteboard", x: W - 3.4, y: 0.4 },
     { kind: "plant", x: 0.6, y: 0.6 }, { kind: "plant", x: W - 1.2, y: D - 1.2 }, { kind: "plant", x: 4.6, y: D - 3.6 }, { kind: "plant", x: W - 5.2, y: y + 0.4 },
     { kind: "plant", x: W / 2 + 2.6, y: D - 1.4 }, { kind: "plant", x: 0.7, y: y + 0.2 }, { kind: "plant", x: W - 0.9, y: 3.2 }, { kind: "plant", x: 2.6, y: D - 1.2 }, { kind: "plant", x: W / 2 - 4.6, y: y + 0.3 },
-    { kind: "lamp", x: 2.2, y: y + 1.2 }, { kind: "lamp", x: W - 2.6, y: D - 5.6 },
+    { kind: "lamp", x: 2.2, y: y + 1.2 }, { kind: "lamp", x: W - 7.2, y: D - 5.6 },
   ];
 }
 
@@ -149,9 +149,6 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
   for (let i = 1; i < LX; i++) { const a = P(i, 0), b = P(i, LY); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
   for (let i = 1; i < LY; i++) { const a = P(0, i), b = P(LX, i); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
   ctx.stroke();
-  // the desk zone and the lounge, tinted
-  poly(ctx, [P(0.3, 0.3), P(LX - 0.3, 0.3), P(LX - 0.3, rows * 4.4 + 1.2), P(0.3, rows * 4.4 + 1.2)], rgba(theme.machine, 0.12));
-  poly(ctx, [P(0.3, lounge.y0 - 0.6), P(LX - 0.3, lounge.y0 - 0.6), P(LX - 0.3, LY - 0.3), P(0.3, LY - 0.3)], rgba(theme.good, 0.07));
   drawSunlight(ctx, tile, t);
   // painted floor words along the right edge (x = LX), reading from the front
   // corner up towards the back; text-x runs along -y, text-down along +x
