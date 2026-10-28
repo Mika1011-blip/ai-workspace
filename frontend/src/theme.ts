@@ -25,25 +25,25 @@ export const PRESETS: Theme[] = [
     name: "Pastel",
     background: ["#f6efe8", "#efeaf4", "#e4e3f3"],
     slab: "#cfc6ea", floor: "#fbf8f3", ink: "#2d3058", muted: "#7b7aa3", accent: "#ff6b5b", good: "#3ccf9a",
-    machine: "#aab6e8", machineDark: "#4a5488", tagBg: "#ffffff", edge: { color: "#1f1d33", width: 1.25 }, grain: 0.5,
+    machine: "#aab6e8", machineDark: "#4a5488", tagBg: "#ffffff", edge: { color: "#1f1d33", width: 1.25 }, grain: 0.2,
   },
   {
     name: "Mint",
     background: ["#eef8f1", "#e6f3ee", "#dcebe9"],
     slab: "#b8d9cc", floor: "#f7fbf6", ink: "#1f3a33", muted: "#6b8a80", accent: "#ff7a59", good: "#2fb58a",
-    machine: "#9fcbbe", machineDark: "#3f6b60", tagBg: "#ffffff", edge: { color: "#17302a", width: 1.25 }, grain: 0.5,
+    machine: "#9fcbbe", machineDark: "#3f6b60", tagBg: "#ffffff", edge: { color: "#17302a", width: 1.25 }, grain: 0.2,
   },
   {
     name: "Dusk",
     background: ["#e9e1f2", "#dcd3ec", "#cfc6e6"],
     slab: "#a995d6", floor: "#f4eef8", ink: "#2a2140", muted: "#6f6594", accent: "#ff8c5a", good: "#4fd1a0",
-    machine: "#9d9ae0", machineDark: "#3f3a7a", tagBg: "#fbf8ff", edge: { color: "#241c3a", width: 1.5 }, grain: 0.6,
+    machine: "#9d9ae0", machineDark: "#3f3a7a", tagBg: "#fbf8ff", edge: { color: "#241c3a", width: 1.5 }, grain: 0.25,
   },
   {
     name: "Paper",
     background: ["#fbfaf7", "#f4f3ef", "#ebeae5"],
     slab: "#cdcac3", floor: "#fdfcfa", ink: "#262626", muted: "#6f6f6f", accent: "#e4572e", good: "#3a9f6a",
-    machine: "#c9c6bd", machineDark: "#55524b", tagBg: "#ffffff", edge: { color: "#111111", width: 1.75 }, grain: 0.7,
+    machine: "#c9c6bd", machineDark: "#55524b", tagBg: "#ffffff", edge: { color: "#111111", width: 1.75 }, grain: 0.3,
   },
 ];
 
