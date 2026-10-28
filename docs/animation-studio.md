@@ -192,8 +192,14 @@ list of stills — an SVG the asset-maker drew (rasterised at the frame
 size inside the image: this is the studio's code-made image engine), a
 PNG/JPEG, or a flat colour — each with a caption and a duration, plus
 optional audio; enough for illustrated, captioned shorts while the
-heavier renderers are built. HTML → PNG needs a browser in the image and
-is not built yet.
+heavier renderers are built.
+
+The `html` image (`docker/renderers/html/`) records an HTML canvas animation:
+headless Chromium opens `artifacts/07-render/*.html` or `artifacts/explainer.html`,
+awaits `window.ready` and the fonts, calls `window.seek(i/fps)` for every frame
+(`window.FPS`, default 30) up to `window.DURATION`, grabs the largest canvas, and
+muxes the sound from `SOUND.renderOffline(window.scoreSound, …)` when the page has
+it. `POST /projects/{slug}/render?renderer=html` uses it; publish is the same.
 
 **Publish** (API): `ffprobe` must show H.264 video + AAC audio in MP4,
 `yuv420p`, `+faststart` — if not, the API re-muxes with the `ffmpeg`

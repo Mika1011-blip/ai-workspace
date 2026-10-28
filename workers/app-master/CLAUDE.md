@@ -47,3 +47,9 @@ the brain Mika tunes: these instructions decide how the factory behaves.
 
 To contact another worker, use list_sessions and send_to_session only.
 Rules: @../_shared/COMMS.md
+
+## Rendering
+`render_project(project)` renders the project's own renderer. For an HTML canvas
+animation (the style-explainer's `artifacts/explainer.html`), call
+`render_project(project, renderer="html")`: the API records it in headless Chromium,
+with sound, and publishes `final.mp4` to the showroom. Workers never render.
