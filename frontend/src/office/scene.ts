@@ -153,19 +153,20 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
   poly(ctx, [P(0.3, 0.3), P(LX - 0.3, 0.3), P(LX - 0.3, rows * 4.4 + 1.2), P(0.3, rows * 4.4 + 1.2)], rgba(theme.machine, 0.12));
   poly(ctx, [P(0.3, lounge.y0 - 0.6), P(LX - 0.3, lounge.y0 - 0.6), P(LX - 0.3, LY - 0.3), P(0.3, LY - 0.3)], rgba(theme.good, 0.07));
   drawSunlight(ctx, tile, t);
-  // painted floor words: the owner's name along the front edge, the credit under it
+  // painted floor words along the right edge (x = LX), reading from the front
+  // corner up towards the back; text-x runs along -y, text-down along +x
   const floorText = (x: number, y: number, str: string, size: number, alpha: number) => {
     const o = P(x, y);
     ctx.save();
-    ctx.transform(C30, 0.5, -C30, 0.5, o[0], o[1]);
+    ctx.transform(C30, -0.5, C30, 0.5, o[0], o[1]);
     ctx.scale(s / 35, s / 35);
     ctx.font = `800 ${size}px "Inter", system-ui, sans-serif`;
     ctx.fillStyle = rgba(theme.ink, alpha);
     ctx.fillText(str, 0, 0);
     ctx.restore();
   };
-  floorText(5.2, LY - 1.3, OWNER_LINE, 24, 0.38);
-  floorText(5.2, LY - 0.55, CREDIT_LINE, 13, 0.34);
+  floorText(LX - 1.35, LY - 10, OWNER_LINE, 24, 0.38);
+  floorText(LX - 0.6, LY - 10, CREDIT_LINE, 13, 0.34);
 
   // ---------- objects, painter-sorted ----------
   const objs: { key: number; fn: () => void }[] = [];
