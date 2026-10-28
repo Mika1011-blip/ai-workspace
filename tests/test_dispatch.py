@@ -169,6 +169,31 @@ class TestRenderProject:
         assert m["renderer"] == "html" and m["status"] == "published"
         assert manifest(projects_dir)["renderer"] == "html"
 
+    def test_quality_is_passed_to_the_html_renderer_and_checked(self, workers_dir, templates_dir, sessions_db, messages_log, projects_dir):
+        from tests.test_sessions import make_app
+
+        seen = []
+
+        def run(argv):
+            seen.append(argv)
+            if argv[-2:] == ["render", "high"] or argv[-1] == "render":
+                (projects_dir / "first-reel" / "artifacts" / "final-candidate.mp4").write_bytes(b"x")
+            if argv[-1] == "publish":
+                (projects_dir / "first-reel" / "final.mp4").write_bytes(b"x")
+                (projects_dir / "first-reel" / "preview.jpg").write_bytes(b"x")
+            return 0, ""
+
+        c = TestClient(make_app(workers_dir, templates_dir, sessions_db, messages_log, projects_dir=projects_dir, render_run=run))
+        make_project(c)
+        (projects_dir / "first-reel" / "artifacts" / "explainer.html").write_text("<canvas></canvas>", encoding="utf-8")
+
+        assert c.post("/projects/first-reel/render", params={"renderer": "html", "quality": "ultra"}).status_code == 400
+        res = c.post("/projects/first-reel/render", params={"renderer": "html", "quality": "high"})
+
+        assert res.status_code == 200, res.json()
+        render_call = next(a for a in seen if "ai-workspace/renderer-html" in a)
+        assert render_call[-2:] == ["render", "high"]
+
     def test_html_renderer_with_nothing_to_play_is_409_and_bad_renderer_is_400(self, client):
         make_project(client)
 

@@ -83,3 +83,8 @@ in headless Chromium frame by frame through `window.seek(i/30)` (after `window.r
 and fonts), records the sound with `SOUND.renderOffline`, and publishes `final.mp4` +
 `preview.jpg` to the showroom. So keep `window.seek`, `window.DURATION`,
 `window.ready` and `window.scoreSound` working, and keep each frame fast.
+For a high-quality render the renderer sets `window.RENDER_SCALE = 2` before the page
+loads. Honour it when you can: make the canvas `1280*RENDER_SCALE x 720*RENDER_SCALE`
+and `ctx.scale(RENDER_SCALE, RENDER_SCALE)` at the start of every frame (and after any
+`setTransform` reset), so the video gets real detail instead of an upscale. In a browser
+it is undefined; treat that as 1.

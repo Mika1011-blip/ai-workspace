@@ -12,7 +12,16 @@ optionally `window.ready` (a promise to await before the first frame) and
 `window.scoreSound` with the SOUND kit (`SOUND.renderOffline`) for audio.
 
 Which page: artifacts/07-render/index.html, else artifacts/07-render/*.html,
-else artifacts/explainer.html. FPS comes from `window.FPS` if set, else 30.
+else artifacts/explainer.html.
+
+Quality (`render [standard|high]`, default standard):
+  standard  30 fps, x264 CRF 18, the canvas's own size
+  high      60 fps, x264 CRF 12 / preset slow, scaled up to 1080 lines
+            (lanczos), AAC 256k. A page that sets `window.RENDER_SCALE`
+            support -- i.e. reads `window.RENDER_SCALE` (we set it to 2 in
+            high) and draws its canvas that many times larger -- gets real
+            extra detail; any other page is upscaled.
+`window.FPS`, if the page sets it, wins over the preset's frame rate.
 """
 
 import base64
@@ -72,8 +81,17 @@ def wav(pcm: bytes, sr: int) -> bytes:
     return b"RIFF" + struct.pack("<I", 36 + n) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 2, sr, sr * 4, 4, 16) + b"data" + struct.pack("<I", n) + pcm
 
 
-def render(log) -> None:
+QUALITY = {
+    "standard": {"fps": 30, "crf": 18, "preset": "medium", "height": None, "scale": 1, "abr": "192k"},
+    "high": {"fps": 60, "crf": 12, "preset": "slow", "height": 1080, "scale": 2, "abr": "256k"},
+}
+
+
+def render(log, quality: str = "standard") -> None:
     from playwright.sync_api import sync_playwright
+
+    q = QUALITY[quality]
+    log.write(f"quality: {quality} {q}\n")
 
     page_path = find_page(ARTIFACTS)
     log.write(f"page: {page_path.relative_to(PROJECT)}\n")
@@ -81,13 +99,14 @@ def render(log) -> None:
         tmp = Path(tmp)
         browser = p.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
         page = browser.new_page(viewport={"width": 1280, "height": 720})
+        page.add_init_script(f"window.RENDER_SCALE = {q['scale']};")
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(page_path.resolve().as_uri(), wait_until="load", timeout=60_000)
         page.wait_for_function("() => typeof window.seek === 'function' && typeof window.DURATION === 'number'", timeout=30_000)
         page.evaluate("async () => { if (window.ready) await window.ready; await document.fonts.ready; }")
         duration = float(page.evaluate("() => window.DURATION"))
-        fps = int(page.evaluate("() => window.FPS || 30"))
+        fps = int(page.evaluate(f"() => window.FPS || {q['fps']}"))
         if not 0 < duration <= 600:
             raise RuntimeError(f"bad DURATION: {duration}")
         width, height = page.evaluate(SIZE)
@@ -96,7 +115,9 @@ def render(log) -> None:
         video = tmp / "video.mp4"
         enc = subprocess.Popen(
             ["ffmpeg", "-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", str(fps), "-c:v", "png", "-i", "-",
-             "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", str(video)],
+             "-c:v", "libx264", "-preset", q["preset"], "-crf", str(q["crf"]), "-pix_fmt", "yuv420p",
+             "-vf", (f"scale=-2:{q['height']}:flags=lanczos" if q["height"] and height < q["height"] else "scale=trunc(iw/2)*2:trunc(ih/2)*2"),
+             str(video)],
             stdin=subprocess.PIPE,
         )
         for i in range(frames):
@@ -120,7 +141,7 @@ def render(log) -> None:
             wav_path = tmp / "sound.wav"
             wav_path.write_bytes(wav(base64.b64decode(audio["pcm"]), int(audio["sr"])))
             run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(video), "-i", str(wav_path),
-                 "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(CANDIDATE)], log)
+                 "-c:v", "copy", "-c:a", "aac", "-b:a", q["abr"], "-shortest", "-movflags", "+faststart", str(CANDIDATE)], log)
         else:
             run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(video), "-c", "copy", "-movflags", "+faststart", str(CANDIDATE)], log)
     log.write(f"wrote {CANDIDATE} ({'with' if audio else 'no'} sound)\n")
@@ -134,12 +155,13 @@ def run(argv: list[str], log) -> None:
 
 
 def main(argv: list[str]) -> int:
-    if not argv or argv[0] != "render":
+    if not argv or argv[0] != "render" or (len(argv) > 1 and argv[1] not in QUALITY):
         print(__doc__)
         return 2
+    quality = argv[1] if len(argv) > 1 else "standard"
     with LOG.open("a", encoding="utf-8") as log:
         try:
-            render(log)
+            render(log, quality)
         except Exception as exc:  # noqa: BLE001 -- the log is the point
             log.write(f"ERROR: {exc}\n")
             print(f"ERROR: {exc}", file=sys.stderr)
