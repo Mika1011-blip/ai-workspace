@@ -5,7 +5,9 @@
 
 import { C30, type Pt, type Project, type Style, arrow, box, clamp, ease, face, grainOverlay, hull, inside, lerp, mix, poly, rgba, rng, shade, tag } from "../iso/core";
 import type { Theme } from "../theme";
-import { type Decor, drawAmbience, drawCat, drawDecor, drawSunlight, stepCat } from "./decor";
+import { drawButterflies, drawCat, drawDog, drawSparrow, stepAnimal } from "./animals";
+import { type Decor, drawAmbience, drawDecor, drawSunlight } from "./decor";
+import { Nav } from "./nav";
 import { drawPerson, look, step as stepPerson } from "./people";
 import { ROBOT_D, ROBOT_H, ROBOT_W, drawRobot } from "./robot";
 
@@ -25,8 +27,10 @@ export interface SceneModel {
   showroomLit: boolean; // a new video was published recently
 }
 
-const STATUS_LABEL: Record<StationStatus, string> = { idle: "idle", thinking: "thinking", using_tool: "using tool", waiting: "waiting", error: "error", stale: "stale" };
-const STATUS_ICON: Record<StationStatus, string> = { idle: "○", thinking: "💭", using_tool: "🔧", waiting: "⏸", error: "✖", stale: "?" };
+/** The desk lamp says the state, one colour each; the screen says it in
+ * words and glyphs too, so colour is never alone. */
+export const LAMP: Record<StationStatus, string> = { idle: "#9aa3ad", thinking: "#4f8ef7", using_tool: "#ffb020", waiting: "#3ccf9a", error: "#ff6b5b", stale: "#c8c8c8" };
+const SCREEN_WORD: Record<StationStatus, string> = { idle: "zZ", thinking: "", using_tool: "", waiting: "?", error: "✖", stale: "no signal" };
 
 export const OWNER_LINE = "Mika's media producer office";
 export const CREDIT_LINE = "created by mika1011-blip.github.io";
@@ -61,18 +65,44 @@ export function decorFor(W: number, D: number, rows: number): Decor[] {
     { kind: "shelf", x: 5.2, y: D - 1.9 },
     { kind: "whiteboard", x: W - 3.4, y: 0.4 },
     { kind: "plant", x: 0.6, y: 0.6 }, { kind: "plant", x: W - 1.2, y: D - 1.2 }, { kind: "plant", x: 4.6, y: D - 3.6 }, { kind: "plant", x: W - 5.2, y: y + 0.4 },
+    { kind: "plant", x: W / 2 + 2.6, y: D - 1.4 }, { kind: "plant", x: 0.7, y: y + 0.2 }, { kind: "plant", x: W - 0.9, y: 3.2 }, { kind: "plant", x: 2.6, y: D - 1.2 }, { kind: "plant", x: W / 2 - 4.6, y: y + 0.3 },
     { kind: "lamp", x: 2.2, y: y + 1.2 }, { kind: "lamp", x: W - 2.6, y: D - 5.6 },
   ];
 }
 
 export interface Hit { id: string; poly: Pt[] }
 let lastT = 0;
+let navCache: { key: string; nav: Nav } | null = null;
+
+/** Footprints nobody may walk through: desks, the robot, the showroom, the furniture, the trees. */
+function navFor(stations: StationModel[], pos: Map<string, Pt>, W: number, D: number, rows: number, showroom: Pt): Nav {
+  const key = [W, D, ...[...pos.entries()].map(([id, p]) => `${id}@${p[0]},${p[1]}`)].join(";");
+  if (navCache && navCache.key === key) return navCache.nav;
+  const nav = new Nav(W, D);
+  for (const m of stations) {
+    const [x, y] = pos.get(m.id)!;
+    if (m.isMaster) nav.block({ x: x - 0.6, y, w: ROBOT_W + 1.2, d: ROBOT_D }, 0.3);
+    else nav.block({ x, y, w: 2, d: 1.6 }, 0.15);
+  }
+  nav.block({ x: showroom[0], y: showroom[1], w: 3.2, d: 2.6 }, 0.3);
+  for (const d of decorFor(W, D, rows)) {
+    const size = DECOR_SIZE[d.kind];
+    if (size[2] > 0) nav.block({ x: d.x, y: d.y, w: size[0], d: size[1] }, d.kind === "lamp" ? 0.1 : 0.2);
+  }
+  for (const [tx, ty] of [[0.7, D - 0.7], [W - 0.7, 0.7], [W - 0.7, D - 0.7]]) nav.block({ x: tx - 0.3, y: ty - 0.3, w: 0.6, d: 0.6 }, 0.2);
+  navCache = { key, nav };
+  return nav;
+}
+const DECOR_SIZE: Record<Decor["kind"], [number, number, number]> = {
+  sofa: [2.2, 0.9, 1], coffee: [1.4, 0.7, 1.4], shelf: [1.6, 0.4, 1.6], whiteboard: [2, 0.1, 1.6], rug: [0, 0, 0], lamp: [0.1, 0.1, 2.2], plant: [0.5, 0.5, 1.2], cooler: [0.45, 0.45, 1.0],
+};
 
 export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, t: number, model: SceneModel, theme: Theme, zoom = 1, insetLeft = 0, pan: Pt = [0, 0]): Hit[] {
   const st: Style = { theme };
   const dt = clamp(t - lastT, 0, 0.1);
   lastT = t;
   const { pos, W: LX, D: LY, showroom, lounge, rows } = layout(model.stations);
+  const nav = navFor(model.stations, pos, LX, LY, rows, showroom);
   // camera: centre the tile in the free part of the screen, scale to fit,
   // slow breathing push, plus whatever the user dragged
   const free = Math.max(200, W - insetLeft);
@@ -143,16 +173,21 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
   const add = (key: number, fn: () => void) => objs.push({ key, fn });
 
   // decor
+  const plantSpots: Pt[] = [];
   for (const d of decorFor(LX, LY, rows)) {
-    const size = d.kind === "sofa" ? [2.2, 0.9, 1] : d.kind === "coffee" ? [1.4, 0.7, 1.4] : d.kind === "shelf" ? [1.6, 0.4, 1.6] : d.kind === "whiteboard" ? [2, 0.1, 1.6] : d.kind === "rug" ? [0, 0, 0] : d.kind === "lamp" ? [0.1, 0.1, 2.2] : [0.5, 0.5, 1.2];
+    const size = DECOR_SIZE[d.kind];
+    if (d.kind === "plant") plantSpots.push([d.x + 0.25, d.y + 0.25]);
     if (size[2] > 0) shadows.push([d.x, d.y, size[0], size[1], size[2]]);
     add(d.kind === "rug" ? -1 : d.x + size[0] / 2 + d.y + size[1] / 2, () => drawDecor(ctx, P, s, d, theme, st, t));
   }
-  // the cat
+  // the animals: a cat and a dog on the floor, a sparrow, butterflies by the plants
   {
-    const c = stepCat(t, dt, lounge.x0 + 0.5, lounge.y0 + 0.3, lounge.x1 - 0.5, lounge.y1 - 0.5);
-    const moving = Math.hypot(c.target[0] - c.pos[0], c.target[1] - c.pos[1]) > 0.03;
-    add(c.pos[0] + c.pos[1] + 0.3, () => drawCat(ctx, P(c.pos[0], c.pos[1]), s, moving, c.facing, theme, t));
+    const cat = stepAnimal("cat", nav, lounge.x0, lounge.y0, lounge.x1, lounge.y1, 0.7, 5, t, dt);
+    add(cat.pos[0] + cat.pos[1] + 0.3, () => drawCat(ctx, P(cat.pos[0], cat.pos[1]), s, cat, theme, t));
+    const dog = stepAnimal("dog", nav, 1, 1, LX - 1, LY - 1, 1.4, 3, t, dt);
+    add(dog.pos[0] + dog.pos[1] + 0.3, () => drawDog(ctx, P(dog.pos[0], dog.pos[1]), s, dog, theme, t));
+    add(1e5, () => drawSparrow(ctx, P, s, 1, 1, LX - 1, LY - 1, theme, t));
+    add(1e5 + 1, () => drawButterflies(ctx, P, s, plantSpots.slice(0, 4), theme, t));
   }
 
   // stations
@@ -182,8 +217,8 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
     shadows.push([x, y, w, d, 1.6 * k]);
     hits.push({ id: m.id, poly: [P(x, y, 0), P(x + w, y, 0), P(x + w, y + d, 0), P(x + w, y + d, h + 1.4), P(x, y + d, h + 1.4), P(x, y, h + 1.4)] });
     // the person: seated in front of the desk, or wherever they wandered
-    const seat: Pt = [x + 1.0, y + d + 0.35];
-    const person = stepPerson(m.id, m.status, seat, lounge, t, dt);
+    const seat: Pt = [x + 1.0, y + d + 0.5];
+    const person = stepPerson(m.id, m.status, seat, lounge, nav, t, dt);
     add(x + w / 2 + y + d / 2, () => {
       ctx.save();
       const base = P(x + w / 2, y + d / 2, 0);
@@ -199,19 +234,42 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
       const flicker = live ? 0.9 + 0.1 * Math.sin(t * 23 + phase) : 1;
       const scr = m.status === "error" ? mix(theme.tagBg, theme.accent, 0.45 + 0.3 * Math.sin(t * 12)) : !live ? mix(theme.tagBg, theme.machineDark, 0.5) : mix(theme.tagBg, theme.good, 0.25 * flicker);
       poly(ctx, [P(x + 0.55 + shake, y + 0.27, h + 0.1), P(x + 1.45 + shake, y + 0.27, h + 0.1), P(x + 1.45 + shake, y + 0.27, h + 0.65), P(x + 0.55 + shake, y + 0.27, h + 0.65)], rgba(scr));
-      if (live) { // lines of "work" scrolling on the screen
+      { // what the screen shows: the state in words and glyphs
         const o = P(x + 0.62 + shake, y + 0.27, h + 0.58);
         ctx.save(); ctx.transform(C30, 0.5, 0, 1, o[0], o[1]); ctx.scale(s / 40, s / 40);
-        ctx.strokeStyle = rgba(theme.ink, 0.35); ctx.lineWidth = 1.5;
-        for (let i = 0; i < 4; i++) { const len = 8 + ((i * 7 + Math.floor(t * 3 + phase)) % 5) * 4; ctx.beginPath(); ctx.moveTo(2, 3 + i * 4); ctx.lineTo(2 + len, 3 + i * 4); ctx.stroke(); }
+        if (m.status === "thinking") {
+          ctx.strokeStyle = rgba(theme.ink, 0.35); ctx.lineWidth = 1.5;
+          for (let i = 0; i < 4; i++) { const len = 8 + ((i * 7 + Math.floor(t * 3 + phase)) % 5) * 4; ctx.beginPath(); ctx.moveTo(2, 3 + i * 4); ctx.lineTo(2 + len, 3 + i * 4); ctx.stroke(); }
+        } else if (m.status === "using_tool") {
+          ctx.strokeStyle = rgba(theme.ink, 0.55); ctx.lineWidth = 1.6;
+          ctx.save(); ctx.translate(9, 9); ctx.rotate(t * 3);
+          for (let i = 0; i < 6; i++) { ctx.rotate(Math.PI / 3); ctx.beginPath(); ctx.moveTo(0, -3); ctx.lineTo(0, -6); ctx.stroke(); }
+          ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, 7); ctx.stroke(); ctx.restore();
+          ctx.font = '700 7px "Inter", system-ui, sans-serif'; ctx.fillStyle = rgba(theme.ink, 0.7);
+          ctx.fillText((m.tool ?? "").replace(/^mcp__[^_]+__/, "").slice(0, 9), 16, 12);
+        } else if (m.status === "stale") {
+          const r2 = rng(Math.floor(t * 8) + m.id);
+          ctx.fillStyle = rgba(theme.ink, 0.25);
+          for (let i = 0; i < 40; i++) ctx.fillRect(r2() * 32, r2() * 18, 2, 1.5);
+        } else if (SCREEN_WORD[m.status]) {
+          const blink = m.status === "waiting" ? Math.sin(t * 3 + phase) > -0.2 : true;
+          if (blink) { ctx.font = `800 ${m.status === "idle" ? 10 : 13}px "Inter", system-ui, sans-serif`; ctx.fillStyle = m.status === "error" ? theme.accent : rgba(theme.ink, 0.55); ctx.fillText(SCREEN_WORD[m.status], 4, 14); }
+        }
         ctx.restore();
       }
       prop(ctx, P, s, x + 0.25, y + 1.0, h, m.role, theme, st, t + phase);
       // lamp: the status light
       const lp = P(x + 1.75, y + 1.2, h + 0.35);
-      const lampCol = m.status === "error" ? theme.accent : !live ? theme.muted : theme.good;
-      const pulse = m.status === "thinking" ? 0.55 + 0.45 * Math.sin(t * 4 + phase) : m.status === "waiting" ? (Math.sin(t * 1.5 + phase) > 0 ? 1 : 0.25) : m.status === "using_tool" ? 1 : 0.35;
+      const lampCol = LAMP[m.status];
+      const pulse = m.status === "thinking" ? 0.55 + 0.45 * Math.sin(t * 4 + phase) : m.status === "waiting" ? (Math.sin(t * 1.5 + phase) > 0 ? 1 : 0.25) : m.status === "using_tool" ? 1 : m.status === "error" ? 0.8 + 0.2 * Math.sin(t * 12) : 0.12;
       const rr = 0.16 * s;
+      { // the lamp's arm and shade
+        const base = P(x + 1.85, y + 1.35, h);
+        ctx.strokeStyle = theme.machineDark; ctx.lineWidth = 2; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(base[0], base[1]); ctx.lineTo(lp[0] + 0.06 * s, lp[1] - 0.22 * s); ctx.stroke();
+        ctx.fillStyle = rgba(theme.machineDark); ctx.beginPath(); ctx.moveTo(lp[0] - rr * 1.3, lp[1] - rr * 0.2); ctx.lineTo(lp[0] + rr * 1.3, lp[1] - rr * 0.2); ctx.lineTo(lp[0] + rr * 0.6, lp[1] - rr * 1.6); ctx.lineTo(lp[0] - rr * 0.6, lp[1] - rr * 1.6); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = theme.edge.color; ctx.lineWidth = theme.edge.width * 0.8; ctx.stroke();
+      }
       const glow = ctx.createRadialGradient(lp[0], lp[1], 1, lp[0], lp[1], rr * 3.2);
       glow.addColorStop(0, rgba(lampCol, 0.45 * pulse)); glow.addColorStop(1, rgba(lampCol, 0));
       ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(lp[0], lp[1], rr * 3.2, 0, 7); ctx.fill();
@@ -323,8 +381,8 @@ function nameTags(ctx: CanvasRenderingContext2D, p: Pt, m: StationModel, isSel: 
   ctx.save();
   ctx.globalAlpha = m.status === "stale" ? 0.7 : 1;
   tag(ctx, p[0], p[1] - 14 * k, m.id, st, { font: '800 16px "Inter", system-ui, sans-serif', k: popK, bg: isSel ? theme.accent : undefined, col: isSel ? "#fff" : undefined });
-  tag(ctx, p[0], p[1] + 10 * k, STATUS_LABEL[m.status], st, { font: '600 12px "Inter", system-ui, sans-serif', k: popK, icon: STATUS_ICON[m.status], bg: m.status === "error" ? rgba(mix(theme.tagBg, theme.accent, 0.25)) : undefined });
-  if (m.status === "using_tool" && m.tool) tag(ctx, p[0], p[1] + 32 * k, m.tool.replace(/^mcp__[^_]+__/, ""), st, { font: '600 11px "Inter", system-ui, sans-serif', k: popK, bg: theme.machineDark, col: "#fff" });
+  if (m.status === "using_tool" && m.tool) tag(ctx, p[0], p[1] + 10 * k, m.tool.replace(/^mcp__[^_]+__/, ""), st, { font: '600 11px "Inter", system-ui, sans-serif', k: popK, bg: theme.machineDark, col: "#fff" });
+  if (m.status === "error") tag(ctx, p[0], p[1] + 10 * k, "error", st, { font: '700 11px "Inter", system-ui, sans-serif', k: popK, icon: "✖", bg: rgba(mix(theme.tagBg, theme.accent, 0.25)) });
   ctx.restore();
 }
 

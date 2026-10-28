@@ -13,7 +13,9 @@ body { font-family: "Inter", system-ui, sans-serif; color: var(--ink); backgroun
 .app { position: relative; height: 100%; }
 canvas.office { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
 canvas.office:active { cursor: grabbing; }
-.feed { position: absolute; right: 1rem; bottom: 0.6rem; margin: 0; }
+.feed { position: absolute; right: 1rem; bottom: 0.6rem; margin: 0; display: flex; gap: 0.4rem; align-items: center; }
+.legend span { margin-left: 0.6rem; }
+.lamp { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--edge); vertical-align: middle; }
 
 h2 { font-size: 1.15rem; font-weight: 800; margin: 0; }
 h3 { font-size: 0.95rem; font-weight: 800; margin: 1rem 0 0.25rem; }

@@ -4,7 +4,7 @@ import Panel, { type PanelMode } from "./components/Panel";
 import Sidebar from "./components/Sidebar";
 import { shownStatus, useLiveState } from "./hooks/useLiveState";
 import Office, { sceneNow } from "./office/Office";
-import type { SceneModel, StationModel } from "./office/scene";
+import { LAMP, type SceneModel, type StationModel } from "./office/scene";
 import { ThemeContext, applyCssVars, loadTheme, saveTheme, type Theme } from "./theme";
 
 export const STRIP_W = 64, PANEL_W = 440, PANE_GAP = 14;
@@ -88,7 +88,10 @@ export default function App() {
             )}
           </div>
         </div>
-        <p className="feed muted small" aria-live="polite">live feed: {live.feed}</p>
+        <p className="feed muted small">
+          <span className="legend">desk lamp: {(["thinking", "using_tool", "waiting", "error"] as const).map((k) => <span key={k}><i className="lamp" style={{ background: LAMP[k] }} aria-hidden="true" /> {k.replace("_", " ")}</span>)}</span>
+          <span aria-live="polite"> · live feed: {live.feed}</span>
+        </p>
       </div>
     </ThemeContext.Provider>
   );
