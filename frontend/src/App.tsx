@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listWorkers, type Worker } from "./api";
-import Glass from "./components/Glass";
 import Panel, { type PanelMode } from "./components/Panel";
 import Sidebar from "./components/Sidebar";
 import { shownStatus, useLiveState } from "./hooks/useLiveState";
 import Office, { sceneNow } from "./office/Office";
 import type { SceneModel, StationModel } from "./office/scene";
 import { ThemeContext, applyCssVars, loadTheme, saveTheme, type Theme } from "./theme";
+
+export const STRIP_W = 64, PANEL_W = 440, PANE_GAP = 14;
 
 export default function App() {
   const [theme, setThemeState] = useState<Theme>(loadTheme);
@@ -46,12 +47,8 @@ export default function App() {
         role: w.name,
       };
     });
-    const cards = [...live.events.values()].flat()
-      .filter((e) => e.text?.startsWith("Message from"))
-      .slice(-6)
-      .map((e) => ({ from: "app-master", to: e.worker, at: sceneNow() - (Date.now() - new Date(e.at).getTime()) / 1000 }));
-    return { stations, selected: mode?.kind === "worker" ? mode.name : null, showroomLit: false, cards };
-  }, [workers, live.states, live.events, mode]);
+    return { stations, selected: mode?.kind === "worker" ? mode.name : null, showroomLit: false };
+  }, [workers, live.states, mode]);
 
   const pick = (id: string | null) => {
     if (id === "__showroom") setMode({ kind: "gallery" });
@@ -63,35 +60,33 @@ export default function App() {
   return (
     <ThemeContext.Provider value={{ theme, setTheme }}>
       <div className="app">
-        <Office model={model} onPick={pick} insetLeft={mode ? 64 + 440 + 28 : 64 + 28} />
+        <Office model={model} onPick={pick} insetLeft={(mode ? STRIP_W + PANEL_W : STRIP_W) + PANE_GAP * 2} />
         <div className={`pane ${mode ? "open" : ""}`}>
-          <Glass radius={26} className="pane-glass">
-            <div className="pane-inner">
-              <Sidebar
-                workers={workers}
-                states={live.states}
-                selected={mode?.kind === "worker" ? mode.name : null}
-                mode={mode?.kind ?? null}
-                onPick={(name) => setMode({ kind: "worker", name })}
-                onAdd={() => setMode({ kind: "new" })}
-                onGallery={() => setMode({ kind: "gallery" })}
-                onTheme={() => setMode({ kind: "theme" })}
+          <div className="pane-inner">
+            <Sidebar
+              workers={workers}
+              states={live.states}
+              selected={mode?.kind === "worker" ? mode.name : null}
+              mode={mode?.kind ?? null}
+              onPick={(name) => setMode({ kind: "worker", name })}
+              onAdd={() => setMode({ kind: "new" })}
+              onGallery={() => setMode({ kind: "gallery" })}
+              onTheme={() => setMode({ kind: "theme" })}
+            />
+            {mode && (
+              <Panel
+                mode={mode}
+                worker={selectedWorker}
+                state={mode.kind === "worker" ? live.states.get(mode.name) : undefined}
+                events={mode.kind === "worker" ? (live.events.get(mode.name) ?? []) : []}
+                onClose={() => setMode(null)}
+                onRefresh={refresh}
+                onCreated={async (name) => { await refresh(); setMode({ kind: "worker", name }); }}
+                onDeleted={async () => { setMode(null); await refresh(); }}
+                onUpdated={(w) => setWorkers((ws) => ws.map((x) => (x.name === w.name ? w : x)))}
               />
-              {mode && (
-                <Panel
-                  mode={mode}
-                  worker={selectedWorker}
-                  state={mode.kind === "worker" ? live.states.get(mode.name) : undefined}
-                  events={mode.kind === "worker" ? (live.events.get(mode.name) ?? []) : []}
-                  onClose={() => setMode(null)}
-                  onRefresh={refresh}
-                  onCreated={async (name) => { await refresh(); setMode({ kind: "worker", name }); }}
-                  onDeleted={async () => { setMode(null); await refresh(); }}
-                  onUpdated={(w) => setWorkers((ws) => ws.map((x) => (x.name === w.name ? w : x)))}
-                />
-              )}
-            </div>
-          </Glass>
+            )}
+          </div>
         </div>
         <p className="feed muted small" aria-live="polite">live feed: {live.feed}</p>
       </div>

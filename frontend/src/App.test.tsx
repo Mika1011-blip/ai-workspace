@@ -2,8 +2,6 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import App from "./App";
 import { FakeEventSource } from "./test/setup";
 
-// The glass needs SVG filters and layout; in jsdom it is just a box.
-vi.mock("liquid-glass-react", () => ({ default: ({ children }: { children: React.ReactNode }) => <div data-testid="glass">{children}</div> }));
 // The office draws on a canvas; jsdom has no 2D context, so the scene is a no-op here.
 vi.mock("./office/Office", () => ({
   default: ({ onPick }: { onPick: (id: string | null) => void }) => <canvas data-testid="office" onClick={() => onPick("renderer")} />,

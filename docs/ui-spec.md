@@ -1,6 +1,6 @@
 # UI spec — the AI office
 
-One page. The isometric office fills the viewport; everything else is a glass
+One page. The isometric office fills the viewport; everything else is a solid
 pane on its edge. React 19 + TypeScript + Vite in `frontend/`, served by the
 API (`/app` while the old pages still exist, then `/`).
 
@@ -25,22 +25,24 @@ Objects:
 
 | Thing | Drawing | State → motion |
 |---|---|---|
-| Master (`app-master`) | central machine with a glass-top panel and dials | as a station, plus cards leaving on the conveyor when it dispatches |
-| Worker station | desk + monitor + lamp + tiny person; a role prop (typewriter, easel, projector, magnifier, tape reel…) picked from the worker's name/role | appears: springy pop-in; idle: lamp dim; thinking: lamp pulses, cubes rise; using tool: fan spins + white tag with the tool name; waiting: slow blink + coral "?"; error: coral flash, ✖ badge, shake; stale: faded + "?" |
+| Master (`app-master`) | a giant friendly robot: visor eyes, chest screen, antenna | eyes and lights follow its status; arms swing while it works, up when upset |
+| Worker station | desk + monitor + lamp; a role prop (typewriter, easel, projector, magnifier…) picked from the worker's name | appears: springy pop-in; idle: lamp dim, screen dark; thinking: lamp pulses, cubes rise; using tool: fan spins + tag with the tool name; waiting: slow blink; error: coral flash, ✖ badge, shake; stale: faded |
+| Worker (the person) | a random, stable mix of skin, hair, clothes and accessory, seeded by the name | wanders the lounge while idle (pauses, looks around), runs to the desk when work arrives, sits and types while busy (thought bubble / sweat drop), stands by the desk upset on error |
 | Context gauge | a pile of cubes beside the desk, grows with `context_used` | colour shifts to coral past 80 % |
-| Hand-off / message | a card riding a conveyor from the master to the station | one card per delivered message |
 | Showroom | a small cinema tile with a marquee | clicking opens the gallery panel; a new published video lights the marquee |
 | Name tags | white pill tag pinned above each station with icon + status word | never colour alone |
+| Decor | sofa, rug, coffee corner (steam), water cooler (bubbles), bookshelf, whiteboard, plants, lamps (flicker), trees, the office cat (wanders), birds, dust motes, a band of sunlight drifting over the tile | ambiance only, no meaning |
+| Floor text | "Mika's media producer office" and "created by mika1011-blip.github.io" painted along the front edge | |
 
-Clicking a station opens that worker's panel. Drag orbits nothing: the camera
-is fixed with a slow push; wheel zooms within limits.
+Clicking a station opens that worker's panel. Drag pans the camera within
+bounds; wheel zooms within limits; a slow breathing push runs on its own.
 
 ## Sidebar (collapsed by default)
 
-A narrow glass strip (liquid-glass-react) on the left:
+A narrow solid strip (white card, ink border, soft shadow) on the left:
 
-- **Top, pinned:** magnifying-glass button; hovering unfolds a text field that
-  filters avatars by name.
+- **Top, pinned:** magnifying-glass button; hovering or clicking unfolds a text
+  field that filters avatars by name and stays open while focused or filled.
 - **Middle:** vertical list of worker avatars (initials on a pastel disc, a tiny
   status dot + the status word in the tooltip). Hover → name tooltip. Click →
   opens that worker's panel. Active session → a soft pulse.
@@ -50,7 +52,7 @@ A narrow glass strip (liquid-glass-react) on the left:
 
 ## Worker panel (the sidebar unfolds)
 
-A wider glass pane. One per worker; the tab bar on top never changes:
+The strip widens into the panel. One per worker; the tab bar on top never changes:
 
 - **Chat** — transcript from the event stream + run results, message field
   (forwarded into the running session), Start a session / End session.
@@ -74,8 +76,8 @@ button and saved in `localStorage`:
 
 Presets ship: *Pastel* (the reference: cream → lavender, coral accent),
 *Mint*, *Dusk* (deeper lavender, warm ink), *Paper* (near-white, grey slab).
-Edge width is a slider (0–3 px) and edge colour a picker; the glass panes
-follow the theme's ink and accent.
+Edge width is a slider (0–3 px) and edge colour a picker; the pane follows
+the theme's ink and accent.
 
 ## Data
 

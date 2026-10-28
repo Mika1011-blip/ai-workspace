@@ -1,10 +1,13 @@
-// The office scene: a pure function of (model, time, theme) that draws the
-// floating tile, the master's machine in the middle, one station per worker
-// around it, the showroom, and the tags. No business logic lives here; the
-// model is built from API data by the Office component.
+// The office scene: a function of (model, time, theme) that draws the
+// floating tile, the master robot, one desk per worker with its person,
+// the showroom, the decor and the ambiance. No business logic lives here;
+// the model is built from API data by the Office component.
 
-import { C30, Pt, Project, Style, arrow, box, clamp, ease, face, hull, inside, lerp, mix, poly, rgba, rng, shade, tag } from "../iso/core";
+import { C30, type Pt, type Project, type Style, arrow, box, clamp, ease, face, grainOverlay, hull, inside, lerp, mix, poly, rgba, rng, shade, tag } from "../iso/core";
 import type { Theme } from "../theme";
+import { type Decor, drawAmbience, drawCat, drawDecor, drawSunlight, stepCat } from "./decor";
+import { drawPerson, look, step as stepPerson } from "./people";
+import { ROBOT_D, ROBOT_H, ROBOT_W, drawRobot } from "./robot";
 
 export type StationStatus = "idle" | "thinking" | "using_tool" | "waiting" | "error" | "stale";
 export interface StationModel {
@@ -20,11 +23,13 @@ export interface SceneModel {
   stations: StationModel[];
   selected: string | null;
   showroomLit: boolean; // a new video was published recently
-  cards: { from: string; to: string; at: number }[]; // hand-offs riding the belt
 }
 
 const STATUS_LABEL: Record<StationStatus, string> = { idle: "idle", thinking: "thinking", using_tool: "using tool", waiting: "waiting", error: "error", stale: "stale" };
 const STATUS_ICON: Record<StationStatus, string> = { idle: "○", thinking: "💭", using_tool: "🔧", waiting: "⏸", error: "✖", stale: "?" };
+
+export const OWNER_LINE = "Mika's media producer office";
+export const CREDIT_LINE = "created by mika1011-blip.github.io";
 
 /** Where everything sits on the tile, in tile units. */
 export function layout(stations: StationModel[]) {
@@ -32,30 +37,49 @@ export function layout(stations: StationModel[]) {
   const cols = Math.max(2, Math.ceil(Math.sqrt(others.length + 1)));
   const rows = Math.max(1, Math.ceil(others.length / cols));
   const pitch = 4.4;
-  const W = Math.max(cols * pitch + 5, 16), D = Math.max(rows * pitch + 9, 14);
+  const W = Math.max(cols * pitch + 5, 18), D = Math.max(rows * pitch + 11, 16);
   const pos = new Map<string, Pt>();
-  // the master's machine sits front and centre; the showroom in the front-left corner
   const master = stations.find((s) => s.isMaster);
-  if (master) pos.set(master.id, [W / 2 - 2, D - 5.5]);
+  if (master) pos.set(master.id, [W / 2 - ROBOT_W / 2, D - 5.2]);
   others.forEach((s, i) => {
     const r = Math.floor(i / cols), c = i % cols;
     pos.set(s.id, [1.5 + c * pitch + (r % 2) * 1.2, 1.5 + r * pitch]);
   });
-  return { pos, W, D, showroom: [1.2, D - 4.6] as Pt };
+  // the free floor: the band in front of the desks, where people and the cat wander
+  const lounge = { x0: 1, y0: rows * pitch + 2.2, x1: W - 1, y1: D - 1 };
+  return { pos, W, D, showroom: [1.2, D - 4.6] as Pt, lounge, rows };
+}
+
+/** Decor placed around the lounge and the edges, from the tile size. */
+export function decorFor(W: number, D: number, rows: number): Decor[] {
+  const y = rows * 4.4 + 2.4;
+  return [
+    { kind: "rug", x: W / 2 - 1.6, y: D - 8.2, r: 3.4 },
+    { kind: "sofa", x: W - 4.2, y: D - 3.2 },
+    { kind: "coffee", x: W - 2.2, y: y },
+    { kind: "cooler", x: W - 1.2, y: y + 1.6 },
+    { kind: "shelf", x: 5.2, y: D - 1.9 },
+    { kind: "whiteboard", x: W - 3.4, y: 0.4 },
+    { kind: "plant", x: 0.6, y: 0.6 }, { kind: "plant", x: W - 1.2, y: D - 1.2 }, { kind: "plant", x: 4.6, y: D - 3.6 }, { kind: "plant", x: W - 5.2, y: y + 0.4 },
+    { kind: "lamp", x: 2.2, y: y + 1.2 }, { kind: "lamp", x: W - 2.6, y: D - 5.6 },
+  ];
 }
 
 export interface Hit { id: string; poly: Pt[] }
+let lastT = 0;
 
-export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, t: number, model: SceneModel, theme: Theme, zoom = 1, insetLeft = 0): Hit[] {
+export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, t: number, model: SceneModel, theme: Theme, zoom = 1, insetLeft = 0, pan: Pt = [0, 0]): Hit[] {
   const st: Style = { theme };
-  const { pos, W: LX, D: LY, showroom } = layout(model.stations);
-  // camera: centre the tile in the free part of the screen (the pane covers
-  // `insetLeft` px on the left), scale to fit, slow breathing push
+  const dt = clamp(t - lastT, 0, 0.1);
+  lastT = t;
+  const { pos, W: LX, D: LY, showroom, lounge, rows } = layout(model.stations);
+  // camera: centre the tile in the free part of the screen, scale to fit,
+  // slow breathing push, plus whatever the user dragged
   const free = Math.max(200, W - insetLeft);
   const fit = Math.min(free / ((LX + LY) * C30 * 1.1), H / ((LX + LY) * 0.5 + 9));
   const s = fit * zoom * (1 + 0.012 * Math.sin(t * 0.3));
   const bob = Math.sin(t * 1.2) * 2;
-  const cx = insetLeft + free / 2, cy = H / 2 + bob - (LX + LY) * 0.25 * s * 0.1;
+  const cx = insetLeft + free / 2 + pan[0], cy = H / 2 + bob - (LX + LY) * 0.25 * s * 0.1 + pan[1];
   const P: Project = (x, y, z = 0) => [cx + ((x - LX / 2) - (y - LY / 2)) * C30 * s, cy + ((x - LX / 2) + (y - LY / 2)) * 0.5 * s - z * s];
   const TH = 0.9;
   const hits: Hit[] = [];
@@ -76,75 +100,59 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, W, H);
   }
-  // long soft shadow under the slab
-  {
-    ctx.save();
-    ctx.filter = `blur(${Math.round(s * 0.5)}px)`;
+  drawAmbience(ctx, W, H, t, theme);
+  // long soft shadow under the slab: a few stacked, growing layers (a blur
+  // filter every frame is far too slow)
+  for (let i = 0; i < 4; i++) {
+    const grow = i * 0.35;
     const G = (x: number, y: number): Pt => { const p = P(x + 2.2, y, -TH); return [p[0], p[1] + s * 3.2]; };
-    poly(ctx, [G(0, 0), G(LX, 0), G(LX, LY), G(0, LY)], rgba(mix(theme.ink, "#8070c0", 0.5), 0.16));
-    ctx.restore();
+    poly(ctx, [G(-grow, -grow), G(LX + grow, -grow), G(LX + grow, LY + grow), G(-grow, LY + grow)], rgba(mix(theme.ink, "#8070c0", 0.5), 0.05));
   }
   // slab + floor
   box(ctx, P, 0.3, 0.3, -TH - 0.6, LX - 0.6, LY - 0.6, 0.6, shade(mix(theme.slab, theme.ink, 0.12)), st, "under");
   box(ctx, P, 0, 0, -TH, LX, LY, TH, shade(theme.slab), st, "slab");
-  face(ctx, [P(0, 0), P(LX, 0), P(LX, LY), P(0, LY)], theme.floor, st, "floor");
+  const tile: Pt[] = [P(0, 0), P(LX, 0), P(LX, LY), P(0, LY)];
+  face(ctx, tile, theme.floor, st, "floor");
   ctx.strokeStyle = rgba(theme.muted, 0.18);
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let i = 1; i < LX; i++) { const a = P(i, 0), b = P(i, LY); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
   for (let i = 1; i < LY; i++) { const a = P(0, i), b = P(LX, i); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
   ctx.stroke();
-  // zone tints
-  poly(ctx, [P(0.3, 0.3), P(LX - 0.3, 0.3), P(LX - 0.3, LY - 7), P(0.3, LY - 7)], rgba(theme.machine, 0.12));
-  // painted floor words
-  const floorText = (x: number, y: number, str: string, size = 20) => {
+  // the desk zone and the lounge, tinted
+  poly(ctx, [P(0.3, 0.3), P(LX - 0.3, 0.3), P(LX - 0.3, rows * 4.4 + 1.2), P(0.3, rows * 4.4 + 1.2)], rgba(theme.machine, 0.12));
+  poly(ctx, [P(0.3, lounge.y0 - 0.6), P(LX - 0.3, lounge.y0 - 0.6), P(LX - 0.3, LY - 0.3), P(0.3, LY - 0.3)], rgba(theme.good, 0.07));
+  drawSunlight(ctx, tile, t);
+  // painted floor words: the owner's name along the front edge, the credit under it
+  const floorText = (x: number, y: number, str: string, size: number, alpha: number) => {
     const o = P(x, y);
     ctx.save();
     ctx.transform(C30, 0.5, -C30, 0.5, o[0], o[1]);
     ctx.scale(s / 35, s / 35);
     ctx.font = `800 ${size}px "Inter", system-ui, sans-serif`;
-    ctx.fillStyle = rgba(theme.muted, 0.45);
+    ctx.fillStyle = rgba(theme.ink, alpha);
     ctx.fillText(str, 0, 0);
     ctx.restore();
   };
-  floorText(0.8, LY - 0.6, "AI OFFICE");
-  floorText(LX - 7.5, LY - 0.6, "DISPATCH →", 16);
+  floorText(5.2, LY - 1.3, OWNER_LINE, 24, 0.38);
+  floorText(5.2, LY - 0.55, CREDIT_LINE, 13, 0.34);
 
   // ---------- objects, painter-sorted ----------
   const objs: { key: number; fn: () => void }[] = [];
   const shadows: [number, number, number, number, number][] = [];
   const add = (key: number, fn: () => void) => objs.push({ key, fn });
 
-  // the conveyor from the master towards the stations
-  const master = model.stations.find((m) => m.isMaster);
-  const mp = master ? pos.get(master.id)! : null;
-  if (mp) {
-    const bx = mp[0] - 3.5, by = mp[1] + 1.2, len = 7;
-    for (let i = 0; i < len; i++) {
-      add(bx + i + 0.5 + by + 0.5, () => {
-        box(ctx, P, bx + i, by, 0, 1, 0.9, 0.35, shade(theme.machineDark), st, "belt" + i);
-        ctx.strokeStyle = "rgba(255,255,255,0.35)";
-        ctx.lineWidth = 1;
-        const off = (t * 1.6) % 0.5;
-        for (let k = 0; k < 2; k++) {
-          const xx = bx + i + k * 0.5 + off;
-          if (xx > bx + i + 1) continue;
-          const a = P(xx, by, 0.35), b = P(xx, by + 0.9, 0.35);
-          ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
-        }
-      });
-    }
-    // cards: one per recent hand-off, riding for 4 s
-    for (const card of model.cards) {
-      const u = clamp((t - card.at) / 4);
-      if (u >= 1) continue;
-      const x = bx + 0.2 + u * (len - 1.2);
-      add(x + 0.5 + by + 1.1, () => {
-        box(ctx, P, x, by + 0.35, 0.35, 0.9, 0.08, 0.8, shade(theme.tagBg), st, "card");
-        const p = P(x + 0.45, by + 0.4, 1.25);
-        tag(ctx, p[0], p[1], card.to, st, { font: '700 11px "Inter", system-ui, sans-serif', k: Math.min(1, s / 40) });
-      });
-    }
+  // decor
+  for (const d of decorFor(LX, LY, rows)) {
+    const size = d.kind === "sofa" ? [2.2, 0.9, 1] : d.kind === "coffee" ? [1.4, 0.7, 1.4] : d.kind === "shelf" ? [1.6, 0.4, 1.6] : d.kind === "whiteboard" ? [2, 0.1, 1.6] : d.kind === "rug" ? [0, 0, 0] : d.kind === "lamp" ? [0.1, 0.1, 2.2] : [0.5, 0.5, 1.2];
+    if (size[2] > 0) shadows.push([d.x, d.y, size[0], size[1], size[2]]);
+    add(d.kind === "rug" ? -1 : d.x + size[0] / 2 + d.y + size[1] / 2, () => drawDecor(ctx, P, s, d, theme, st, t));
+  }
+  // the cat
+  {
+    const c = stepCat(t, dt, lounge.x0 + 0.5, lounge.y0 + 0.3, lounge.x1 - 0.5, lounge.y1 - 0.5);
+    const moving = Math.hypot(c.target[0] - c.pos[0], c.target[1] - c.pos[1]) > 0.03;
+    add(c.pos[0] + c.pos[1] + 0.3, () => drawCat(ctx, P(c.pos[0], c.pos[1]), s, moving, c.facing, theme, t));
   }
 
   // stations
@@ -156,90 +164,75 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
     const r = rng(m.id);
     const phase = r() * 6.28;
     const isSel = model.selected === m.id;
-    const w = m.isMaster ? 4 : 2, d = m.isMaster ? 3.4 : 1.6, h = m.isMaster ? 2.4 : 0.8;
-    shadows.push([x, y, w, d, (m.isMaster ? 2.6 : 1.6) * k]);
-    const foot: Pt[] = [P(x, y), P(x + w, y), P(x + w, y + d), P(x, y + d)];
-    hits.push({ id: m.id, poly: [P(x, y, 0), P(x + w, y, 0), P(x + w, y + d, 0), P(x + w, y + d, h + 1.4), P(x, y + d, h + 1.4), P(x, y, h + 1.4)].map((p) => [p[0], p[1]] as Pt) });
+    if (m.isMaster) {
+      shadows.push([x, y, ROBOT_W, ROBOT_D, ROBOT_H * k]);
+      hits.push({ id: m.id, poly: [P(x - 0.6, y, 0), P(x + ROBOT_W + 0.6, y, 0), P(x + ROBOT_W + 0.6, y + ROBOT_D, 0), P(x + ROBOT_W + 0.6, y + ROBOT_D, ROBOT_H + 0.8), P(x - 0.6, y + ROBOT_D, ROBOT_H + 0.8), P(x - 0.6, y, ROBOT_H + 0.8)] });
+      add(x + ROBOT_W / 2 + y + ROBOT_D / 2, () => {
+        ctx.save();
+        const base = P(x + ROBOT_W / 2, y + ROBOT_D / 2, 0);
+        ctx.translate(base[0], base[1]); ctx.scale(k, k); ctx.translate(-base[0], -base[1]);
+        if (isSel) { ctx.shadowColor = rgba(theme.accent, 0.6); ctx.shadowBlur = 24; }
+        drawRobot(ctx, P, s, x, y, m.status, theme, st, t + phase);
+        ctx.restore();
+      });
+      add(1e6 + x + y, () => nameTags(ctx, P(x + ROBOT_W / 2, y + ROBOT_D / 2, ROBOT_H + 0.9), m, isSel, t, s, theme, st));
+      continue;
+    }
+    const w = 2, d = 1.6, h = 0.8;
+    shadows.push([x, y, w, d, 1.6 * k]);
+    hits.push({ id: m.id, poly: [P(x, y, 0), P(x + w, y, 0), P(x + w, y + d, 0), P(x + w, y + d, h + 1.4), P(x, y + d, h + 1.4), P(x, y, h + 1.4)] });
+    // the person: seated in front of the desk, or wherever they wandered
+    const seat: Pt = [x + 1.0, y + d + 0.35];
+    const person = stepPerson(m.id, m.status, seat, lounge, t, dt);
     add(x + w / 2 + y + d / 2, () => {
       ctx.save();
       const base = P(x + w / 2, y + d / 2, 0);
-      ctx.translate(base[0], base[1]);
-      ctx.scale(k, k);
-      ctx.translate(-base[0], -base[1]);
+      ctx.translate(base[0], base[1]); ctx.scale(k, k); ctx.translate(-base[0], -base[1]);
       const shake = m.status === "error" ? Math.sin(t * 40) * 0.04 : 0;
-      const bodyCol = m.isMaster ? theme.machine : isSel ? mix(theme.machine, theme.accent, 0.25) : theme.machine;
+      const bodyCol = isSel ? mix(theme.machine, theme.accent, 0.25) : theme.machine;
       const fadeK = m.status === "stale" ? 0.55 : 1;
       ctx.globalAlpha = fadeK;
-      // desk / machine body
       box(ctx, P, x + shake, y, 0, w, d, h, shade(bodyCol), st, m.id + "body");
-      if (m.isMaster) {
-        // glass-top panel with a small net of nodes
-        face(ctx, [P(x + 0.3, y + 0.3, h + 0.01), P(x + w - 0.3, y + 0.3, h + 0.01), P(x + w - 0.3, y + d - 0.3, h + 0.01), P(x + 0.3, y + d - 0.3, h + 0.01)], rgba(mix(theme.tagBg, theme.machine, 0.25), 0.9), st, "glass");
-        const nodes: Pt[] = [];
-        for (let c = 0; c < 3; c++) for (let rr = 0; rr < 3; rr++) nodes.push([x + 0.8 + c * 1.1, y + 0.7 + rr * 1.0]);
-        ctx.strokeStyle = rgba(theme.machineDark, 0.5);
-        ctx.lineWidth = 1;
-        for (let i = 0; i < 9; i++) for (let j = 0; j < 9; j++) {
-          if (Math.floor(j / 3) !== Math.floor(i / 3) + 1) continue;
-          const a = P(nodes[i][0], nodes[i][1], h + 0.02), b = P(nodes[j][0], nodes[j][1], h + 0.02);
-          ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      // monitor at the back of the desk
+      box(ctx, P, x + 0.45 + shake, y + 0.15, h, 1.1, 0.12, 0.75, shade(theme.machineDark), st, m.id + "mon");
+      const live = m.status === "thinking" || m.status === "using_tool" || m.status === "waiting";
+      const flicker = live ? 0.9 + 0.1 * Math.sin(t * 23 + phase) : 1;
+      const scr = m.status === "error" ? mix(theme.tagBg, theme.accent, 0.45 + 0.3 * Math.sin(t * 12)) : !live ? mix(theme.tagBg, theme.machineDark, 0.5) : mix(theme.tagBg, theme.good, 0.25 * flicker);
+      poly(ctx, [P(x + 0.55 + shake, y + 0.27, h + 0.1), P(x + 1.45 + shake, y + 0.27, h + 0.1), P(x + 1.45 + shake, y + 0.27, h + 0.65), P(x + 0.55 + shake, y + 0.27, h + 0.65)], rgba(scr));
+      if (live) { // lines of "work" scrolling on the screen
+        const o = P(x + 0.62 + shake, y + 0.27, h + 0.58);
+        ctx.save(); ctx.transform(C30, 0.5, 0, 1, o[0], o[1]); ctx.scale(s / 40, s / 40);
+        ctx.strokeStyle = rgba(theme.ink, 0.35); ctx.lineWidth = 1.5;
+        for (let i = 0; i < 4; i++) { const len = 8 + ((i * 7 + Math.floor(t * 3 + phase)) % 5) * 4; ctx.beginPath(); ctx.moveTo(2, 3 + i * 4); ctx.lineTo(2 + len, 3 + i * 4); ctx.stroke(); }
+        ctx.restore();
+      }
+      prop(ctx, P, s, x + 0.25, y + 1.0, h, m.role, theme, st, t + phase);
+      // lamp: the status light
+      const lp = P(x + 1.75, y + 1.2, h + 0.35);
+      const lampCol = m.status === "error" ? theme.accent : !live ? theme.muted : theme.good;
+      const pulse = m.status === "thinking" ? 0.55 + 0.45 * Math.sin(t * 4 + phase) : m.status === "waiting" ? (Math.sin(t * 1.5 + phase) > 0 ? 1 : 0.25) : m.status === "using_tool" ? 1 : 0.35;
+      const rr = 0.16 * s;
+      const glow = ctx.createRadialGradient(lp[0], lp[1], 1, lp[0], lp[1], rr * 3.2);
+      glow.addColorStop(0, rgba(lampCol, 0.45 * pulse)); glow.addColorStop(1, rgba(lampCol, 0));
+      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(lp[0], lp[1], rr * 3.2, 0, 7); ctx.fill();
+      ctx.fillStyle = rgba(mix(lampCol, "#ffffff", 1 - pulse * 0.8)); ctx.beginPath(); ctx.arc(lp[0], lp[1], rr, 0, 7); ctx.fill();
+      ctx.strokeStyle = theme.edge.color; ctx.lineWidth = theme.edge.width; ctx.stroke();
+      if (m.status === "using_tool") {
+        const c = P(x + 1.0 + shake, y + 0.1, h + 0.95);
+        ctx.save(); ctx.translate(c[0], c[1]); ctx.scale(1, 0.577); ctx.rotate(t * 7);
+        ctx.fillStyle = theme.tagBg;
+        for (let b = 0; b < 3; b++) { ctx.rotate((Math.PI * 2) / 3); ctx.beginPath(); ctx.ellipse(0.11 * s, 0, 0.14 * s, 0.05 * s, 0, 0, 7); ctx.fill(); ctx.strokeStyle = theme.edge.color; ctx.lineWidth = theme.edge.width * 0.8; ctx.stroke(); }
+        ctx.restore();
+      }
+      if (m.status === "thinking") {
+        for (let i = 0; i < 4; i++) {
+          const ph = (t * 0.45 + i / 4 + phase) % 1;
+          const z = h + 0.2 + ph * 1.6;
+          ctx.globalAlpha = fadeK * Math.sin(ph * Math.PI);
+          const sz = 0.18 * (1 - ph * 0.4);
+          box(ctx, P, x + 1.3 + Math.sin(i * 2.1) * 0.25, y + 0.9 + Math.cos(i * 1.7) * 0.2, z, sz, sz, sz, shade(i % 2 ? theme.accent : mix(theme.accent, "#ffffff", 0.5)), st, "cube" + i);
         }
-        const live = m.status === "thinking" || m.status === "using_tool";
-        nodes.forEach(([nx, ny], i) => {
-          const p = P(nx, ny, h + 0.02), rr = 0.14 * s;
-          const lit = live ? Math.max(0, Math.sin(t * 5 - i * 0.7)) : 0.1;
-          ctx.fillStyle = rgba(mix(theme.machineDark, theme.accent, lit));
-          ctx.beginPath(); ctx.ellipse(p[0], p[1], rr, rr * 0.7, 0, 0, 7); ctx.fill();
-        });
-        // dials on the front
-        for (let i = 0; i < 3; i++) {
-          const o = P(x + 0.8 + i * 1.1, y + d, h * 0.5);
-          ctx.save(); ctx.transform(C30, 0.5, 0, 1, o[0], o[1]); ctx.scale(s / 40, s / 40);
-          ctx.fillStyle = theme.tagBg; ctx.beginPath(); ctx.arc(0, 0, 9, 0, 7); ctx.fill();
-          ctx.strokeStyle = theme.edge.color; ctx.lineWidth = theme.edge.width; ctx.stroke();
-          const ang = -0.9 + i * 0.7 + (m.status === "using_tool" ? Math.sin(t * 3 + i) * 0.6 : 0);
-          ctx.strokeStyle = theme.ink; ctx.lineWidth = 2.2; ctx.lineCap = "round";
-          ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(ang) * 7, Math.sin(ang) * 7); ctx.stroke();
-          ctx.restore();
-        }
-      } else {
-        // monitor at the back of the desk
-        box(ctx, P, x + 0.45 + shake, y + 0.15, h, 1.1, 0.12, 0.75, shade(theme.machineDark), st, m.id + "mon");
-        const scr = m.status === "error" ? mix(theme.tagBg, theme.accent, 0.45 + 0.3 * Math.sin(t * 12)) : m.status === "idle" || m.status === "stale" ? mix(theme.tagBg, theme.machineDark, 0.5) : mix(theme.tagBg, theme.good, 0.25);
-        poly(ctx, [P(x + 0.55 + shake, y + 0.27, h + 0.1), P(x + 1.45 + shake, y + 0.27, h + 0.1), P(x + 1.45 + shake, y + 0.27, h + 0.65), P(x + 0.55 + shake, y + 0.27, h + 0.65)], rgba(scr));
-        // the role prop, on the desk's left
-        prop(ctx, P, s, x + 0.25, y + 1.0, h, m.role, theme, st, t + phase);
-        // lamp: the status light
-        const lp = P(x + 1.75, y + 1.2, h + 0.35);
-        const lampCol = m.status === "error" ? theme.accent : m.status === "idle" || m.status === "stale" ? theme.muted : theme.good;
-        const pulse = m.status === "thinking" ? 0.55 + 0.45 * Math.sin(t * 4 + phase) : m.status === "waiting" ? (Math.sin(t * 1.5 + phase) > 0 ? 1 : 0.25) : m.status === "using_tool" ? 1 : 0.35;
-        const rr = 0.16 * s;
-        const glow = ctx.createRadialGradient(lp[0], lp[1], 1, lp[0], lp[1], rr * 3.2);
-        glow.addColorStop(0, rgba(lampCol, 0.45 * pulse)); glow.addColorStop(1, rgba(lampCol, 0));
-        ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(lp[0], lp[1], rr * 3.2, 0, 7); ctx.fill();
-        ctx.fillStyle = rgba(mix(lampCol, "#ffffff", 1 - pulse * 0.8)); ctx.beginPath(); ctx.arc(lp[0], lp[1], rr, 0, 7); ctx.fill();
-        ctx.strokeStyle = theme.edge.color; ctx.lineWidth = theme.edge.width; ctx.stroke();
-        // tiny person at the desk
-        person(ctx, P(x + 1.0, y + d + 0.3, 0), s, m.status, theme, st, t + phase);
-        // using a tool: a spinning fan on the monitor
-        if (m.status === "using_tool") {
-          const c = P(x + 1.0 + shake, y + 0.1, h + 0.95);
-          ctx.save(); ctx.translate(c[0], c[1]); ctx.scale(1, 0.577); ctx.rotate(t * 7);
-          ctx.fillStyle = theme.tagBg;
-          for (let b = 0; b < 3; b++) { ctx.rotate((Math.PI * 2) / 3); ctx.beginPath(); ctx.ellipse(0.11 * s, 0, 0.14 * s, 0.05 * s, 0, 0, 7); ctx.fill(); ctx.strokeStyle = theme.edge.color; ctx.lineWidth = theme.edge.width * 0.8; ctx.stroke(); }
-          ctx.restore();
-        }
-        // thinking: cubes rise from the desk
-        if (m.status === "thinking") {
-          for (let i = 0; i < 4; i++) {
-            const ph = (t * 0.45 + i / 4 + phase) % 1;
-            const z = h + 0.2 + ph * 1.6;
-            ctx.globalAlpha = fadeK * Math.sin(ph * Math.PI);
-            const sz = 0.18 * (1 - ph * 0.4);
-            box(ctx, P, x + 1.3 + Math.sin(i * 2.1) * 0.25, y + 0.9 + Math.cos(i * 1.7) * 0.2, z, sz, sz, sz, shade(i % 2 ? theme.accent : mix(theme.accent, "#ffffff", 0.5)), st, "cube" + i);
-          }
-          ctx.globalAlpha = fadeK;
-        }
+        ctx.globalAlpha = fadeK;
       }
       // context gauge: a pile of cubes beside the desk
       const n = Math.round(m.context * 8);
@@ -249,18 +242,14 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
       }
       ctx.restore();
     });
-    // the name tag, in screen space, above the station (drawn after the objects)
-    add(1e6 + x + y, () => {
-      const p = P(x + w / 2, y + d / 2, (m.isMaster ? h + 1.6 : h + 1.5));
-      const popK = ease.back(clamp((t - m.bornAt - 0.3) / 0.5)) * Math.min(1, s / 34);
+    // the person is sorted on their own position so they walk behind and in front of things
+    add(person.pos[0] + person.pos[1] + 0.2, () => {
       ctx.save();
-      ctx.globalAlpha = m.status === "stale" ? 0.7 : 1;
-      tag(ctx, p[0], p[1] - 14 * Math.min(1, s / 34), m.id, st, { font: '800 16px "Inter", system-ui, sans-serif', k: popK, bg: isSel ? theme.accent : undefined, col: isSel ? "#fff" : undefined });
-      tag(ctx, p[0], p[1] + 10 * Math.min(1, s / 34), STATUS_LABEL[m.status], st, { font: '600 12px "Inter", system-ui, sans-serif', k: popK, icon: STATUS_ICON[m.status], bg: m.status === "error" ? mix(theme.tagBg, theme.accent, 0.25) as unknown as string : undefined });
-      if (m.status === "using_tool" && m.tool) tag(ctx, p[0], p[1] + 32 * Math.min(1, s / 34), m.tool.replace(/^mcp__[^_]+__/, ""), st, { font: '600 11px "Inter", system-ui, sans-serif', k: popK, bg: theme.machineDark, col: "#fff" });
+      ctx.globalAlpha = m.status === "stale" ? 0.55 : 1;
+      drawPerson(ctx, P(person.pos[0], person.pos[1], 0), s, look(m.id), person, m.status, theme, st, t + phase);
       ctx.restore();
     });
-    void foot;
+    add(1e6 + x + y, () => nameTags(ctx, P(x + w / 2, y + d / 2, h + 1.5), m, isSel, t, s, theme, st));
   }
 
   // showroom: a small cinema with a marquee
@@ -271,13 +260,11 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
     add(sx + 1.6 + sy + 1.3, () => {
       box(ctx, P, sx, sy, 0, 3.2, 2.6, 2.0, shade(mix(theme.machine, theme.accent, 0.15)), st, "cinema");
       box(ctx, P, sx + 0.2, sy - 0.1, 2.0, 2.8, 0.3, 0.6, shade(theme.tagBg), st, "marquee");
-      // door + poster on the front
       poly(ctx, [P(sx + 1.3, sy + 2.6, 0), P(sx + 1.9, sy + 2.6, 0), P(sx + 1.9, sy + 2.6, 1.1), P(sx + 1.3, sy + 2.6, 1.1)], rgba(theme.machineDark));
       poly(ctx, [P(sx + 0.3, sy + 2.6, 0.5), P(sx + 1.0, sy + 2.6, 0.5), P(sx + 1.0, sy + 2.6, 1.5), P(sx + 0.3, sy + 2.6, 1.5)], rgba(theme.accent, 0.85));
-      // marquee bulbs
       for (let i = 0; i < 7; i++) {
         const p = P(sx + 0.4 + i * 0.4, sy - 0.1, 2.35);
-        const on = model.showroomLit ? Math.sin(t * 6 + i) > 0 : i % 2 === 0;
+        const on = model.showroomLit ? Math.sin(t * 6 + i) > 0 : Math.sin(t * 1.5 + i * 0.9) > 0.3;
         ctx.fillStyle = on ? "#ffe28a" : rgba(theme.muted, 0.4);
         ctx.beginPath(); ctx.arc(p[0], p[1], 0.07 * s, 0, 7); ctx.fill();
       }
@@ -286,8 +273,8 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
     });
   }
 
-  // decorative trees in the corners
-  for (const [tx, ty] of [[0.7, 0.7], [LX - 0.7, 0.7], [LX - 0.7, LY - 0.7]] as Pt[]) {
+  // trees in the corners
+  for (const [tx, ty] of [[0.7, LY - 0.7], [LX - 0.7, 0.7], [LX - 0.7, LY - 0.7]] as Pt[]) {
     shadows.push([tx - 0.3, ty - 0.3, 0.6, 0.6, 1.8]);
     add(tx + ty, () => {
       const b = P(tx, ty), top = P(tx, ty, 1.4), rr = 0.55 * s;
@@ -312,42 +299,45 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
       for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
       ctx.closePath();
     }
-    // clip to the tile
-    ctx.save();
-    ctx.beginPath();
-    for (const [i, p] of [P(0, 0), P(LX, 0), P(LX, LY), P(0, LY)].entries()) i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
-    ctx.closePath();
-    ctx.clip();
-    ctx.restore();
     ctx.fill();
     ctx.restore();
   }
 
   objs.sort((a, b) => a.key - b.key);
   for (const o of objs) { ctx.save(); o.fn(); ctx.restore(); }
+  grainOverlay(ctx, W, H, theme.grain);
 
   // a dashed connector from the master to the selected station
-  if (mp && model.selected && model.selected !== master?.id && pos.has(model.selected)) {
-    const [tx, ty] = pos.get(model.selected)!;
-    const a = P(mp[0] + 2, mp[1], 2.6), b = P(tx + 1, ty + 0.8, 1.2);
+  const master = model.stations.find((m) => m.isMaster);
+  if (master && model.selected && model.selected !== master.id && pos.has(model.selected)) {
+    const mp = pos.get(master.id)!, [tx, ty] = pos.get(model.selected)!;
+    const a = P(mp[0] + ROBOT_W / 2, mp[1], ROBOT_H - 1), b = P(tx + 1, ty + 0.8, 1.2);
     arrow(ctx, [a, [(a[0] + b[0]) / 2, Math.min(a[1], b[1]) - 1.2 * s], b], 1, rgba(theme.machineDark, 0.6), [6, 6], 2);
   }
   return hits;
 }
 
-// ---------- props ----------
+function nameTags(ctx: CanvasRenderingContext2D, p: Pt, m: StationModel, isSel: boolean, t: number, s: number, theme: Theme, st: Style) {
+  const k = Math.min(1, s / 34);
+  const popK = ease.back(clamp((t - m.bornAt - 0.3) / 0.5)) * k;
+  ctx.save();
+  ctx.globalAlpha = m.status === "stale" ? 0.7 : 1;
+  tag(ctx, p[0], p[1] - 14 * k, m.id, st, { font: '800 16px "Inter", system-ui, sans-serif', k: popK, bg: isSel ? theme.accent : undefined, col: isSel ? "#fff" : undefined });
+  tag(ctx, p[0], p[1] + 10 * k, STATUS_LABEL[m.status], st, { font: '600 12px "Inter", system-ui, sans-serif', k: popK, icon: STATUS_ICON[m.status], bg: m.status === "error" ? rgba(mix(theme.tagBg, theme.accent, 0.25)) : undefined });
+  if (m.status === "using_tool" && m.tool) tag(ctx, p[0], p[1] + 32 * k, m.tool.replace(/^mcp__[^_]+__/, ""), st, { font: '600 11px "Inter", system-ui, sans-serif', k: popK, bg: theme.machineDark, col: "#fff" });
+  ctx.restore();
+}
+
+// ---------- desk props ----------
 function prop(ctx: CanvasRenderingContext2D, P: Project, s: number, x: number, y: number, z: number, role: string, theme: Theme, st: Style, t: number) {
   const r = role.toLowerCase();
   if (/script|writ|news|digest/.test(r)) {
-    // a typewriter: a small box with a paper sheet
     box(ctx, P, x, y - 0.3, z, 0.6, 0.45, 0.25, shade(theme.machineDark), st, "tw");
     face(ctx, [P(x + 0.1, y - 0.2, z + 0.26), P(x + 0.5, y - 0.2, z + 0.26), P(x + 0.5, y - 0.2, z + 0.8), P(x + 0.1, y - 0.2, z + 0.8)], theme.tagBg, st, "sheet");
   } else if (/asset|art|draw|design|storyboard/.test(r)) {
-    // an easel with a canvas
     face(ctx, [P(x, y - 0.1, z + 0.1), P(x + 0.6, y - 0.1, z + 0.1), P(x + 0.6, y - 0.1, z + 0.75), P(x, y - 0.1, z + 0.75)], rgba(mix(theme.tagBg, theme.accent, 0.2)), st, "easel");
     ctx.fillStyle = theme.accent; const p = P(x + 0.3, y - 0.1, z + 0.45); ctx.beginPath(); ctx.arc(p[0], p[1], 0.08 * s, 0, 7); ctx.fill();
   } else if (/render|video|publish/.test(r)) {
-    // a projector / film reel
     const c = P(x + 0.3, y - 0.1, z + 0.35);
     ctx.save(); ctx.translate(c[0], c[1]); ctx.rotate(t * 2);
     ctx.fillStyle = rgba(theme.machineDark); ctx.beginPath(); ctx.arc(0, 0, 0.22 * s, 0, 7); ctx.fill();
@@ -355,34 +345,19 @@ function prop(ctx: CanvasRenderingContext2D, P: Project, s: number, x: number, y
     ctx.fillStyle = theme.tagBg; for (let i = 0; i < 3; i++) { ctx.rotate((Math.PI * 2) / 3); ctx.beginPath(); ctx.arc(0.1 * s, 0, 0.05 * s, 0, 7); ctx.fill(); }
     ctx.restore();
   } else if (/review/.test(r)) {
-    // a magnifying glass
     const c = P(x + 0.3, y - 0.1, z + 0.3);
     ctx.strokeStyle = theme.edge.color; ctx.lineWidth = Math.max(1.5, theme.edge.width * 1.5);
     ctx.fillStyle = rgba(mix(theme.tagBg, theme.machine, 0.3), 0.8);
     ctx.beginPath(); ctx.arc(c[0], c[1], 0.17 * s, 0, 7); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(c[0] + 0.12 * s, c[1] + 0.12 * s); ctx.lineTo(c[0] + 0.3 * s, c[1] + 0.3 * s); ctx.stroke();
-  } else if (/master|produc|manag|dispatch/.test(r)) {
+  } else if (/produc|manag|dispatch/.test(r)) {
     box(ctx, P, x, y - 0.3, z, 0.5, 0.5, 0.5, shade(theme.accent), st, "crate");
   } else {
-    // a mug of coffee
     const b = P(x + 0.3, y - 0.1, z);
     ctx.fillStyle = theme.tagBg; ctx.beginPath(); ctx.roundRect(b[0] - 0.09 * s, b[1] - 0.26 * s, 0.18 * s, 0.24 * s, 3); ctx.fill();
     ctx.strokeStyle = theme.edge.color; ctx.lineWidth = theme.edge.width; ctx.stroke();
     ctx.fillStyle = theme.accent; ctx.fillRect(b[0] - 0.09 * s, b[1] - 0.26 * s, 0.18 * s, 0.05 * s);
   }
-}
-
-function person(ctx: CanvasRenderingContext2D, p: Pt, s: number, status: StationStatus, theme: Theme, st: Style, t: number) {
-  const hh = 0.9 * s * Math.min(1, s / 30);
-  const bob = status === "thinking" || status === "using_tool" ? Math.sin(t * 6) * 1.2 : 0;
-  ctx.fillStyle = "rgba(80,70,140,0.18)"; ctx.beginPath(); ctx.ellipse(p[0] + 4, p[1] + 1, 6, 2.5, 0, 0, 7); ctx.fill();
-  ctx.strokeStyle = theme.machineDark; ctx.lineWidth = 2.6; ctx.lineCap = "round";
-  ctx.beginPath(); ctx.moveTo(p[0] - 2, p[1]); ctx.lineTo(p[0] - 1.5, p[1] - hh * 0.42); ctx.moveTo(p[0] + 2, p[1] - 1); ctx.lineTo(p[0] + 1.5, p[1] - hh * 0.42); ctx.stroke();
-  ctx.fillStyle = status === "error" ? theme.accent : theme.machine;
-  ctx.beginPath(); ctx.roundRect(p[0] - 4.5, p[1] - hh * 0.8 - bob, 9, hh * 0.42, 3.5); ctx.fill();
-  ctx.strokeStyle = theme.edge.color; ctx.lineWidth = theme.edge.width * 0.8; ctx.stroke();
-  ctx.fillStyle = "#f1c6a8"; ctx.beginPath(); ctx.arc(p[0], p[1] - hh * 0.9 - bob, 3.8, 0, 7); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = theme.ink; ctx.beginPath(); ctx.arc(p[0] + 0.6, p[1] - hh * 0.93 - bob, 3.9, Math.PI * 1.05, Math.PI * 2.05); ctx.fill();
 }
 
 export { inside, lerp };

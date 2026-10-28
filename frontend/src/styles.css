@@ -11,7 +11,8 @@
 html, body, #root { height: 100%; margin: 0; }
 body { font-family: "Inter", system-ui, sans-serif; color: var(--ink); background: linear-gradient(135deg, var(--bg0), var(--bg1) 55%, var(--bg2)); overflow: hidden; }
 .app { position: relative; height: 100%; }
-canvas.office { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: pointer; }
+canvas.office { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+canvas.office:active { cursor: grabbing; }
 .feed { position: absolute; right: 1rem; bottom: 0.6rem; margin: 0; }
 
 h2 { font-size: 1.15rem; font-weight: 800; margin: 0; }
@@ -35,22 +36,20 @@ label.check input { width: auto; margin: 0; }
 label.small { font-weight: 400; margin: 0; }
 label.small input { width: auto; }
 
-/* the glass pane: a strip, or strip + panel */
+/* the pane: a solid card on the office's edge, a strip or strip + panel */
 .pane { position: absolute; top: 14px; left: 14px; bottom: 14px; width: var(--strip); transition: width 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.1); z-index: 2; }
 .pane.open { width: calc(var(--strip) + var(--panel)); }
-/* the library wraps our content in a few divs of its own; make them fill the pane */
-.pane-glass, .pane-glass .glass, .pane-glass .glass > * { height: 100%; width: 100%; }
-/* a milky wash under the content so text reads over the office; the glass
-   refraction stays visible along the edges */
-.pane-inner { display: flex; height: 100%; width: 100%; color: var(--ink); background: rgba(255, 255, 255, 0.58); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); border-radius: 26px; }
+.pane-inner { display: flex; height: 100%; width: 100%; color: var(--ink); background: var(--tag); border: var(--edge-w) solid var(--edge); border-radius: 26px; box-shadow: 0 18px 40px rgba(80, 70, 140, 0.22), 0 2px 6px rgba(80, 70, 140, 0.12); overflow: visible; }
 @media (max-width: 760px) { .pane.open { width: calc(100vw - 28px); } :root { --panel: calc(100vw - 28px - var(--strip)); } }
 
 /* strip */
-.strip { width: var(--strip); flex: none; display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 8px; border-right: 1px solid rgba(255, 255, 255, 0.45); }
+.strip { width: var(--strip); flex: none; display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 8px; border-right: 1px solid rgba(45, 48, 88, 0.12); }
 .search { position: relative; display: flex; align-items: center; }
-.search input { position: absolute; left: 46px; top: 2px; width: 0; padding: 0.35rem 0; opacity: 0; transition: width 0.2s, opacity 0.2s, padding 0.2s; border-radius: 999px; }
-.search.open input { width: 160px; padding: 0.35rem 0.7rem; opacity: 1; }
-.avatars { list-style: none; margin: 0; padding: 0 0 4px; display: flex; flex-direction: column; gap: 8px; flex: 1; overflow-y: auto; overflow-x: hidden; width: 100%; align-items: center; scrollbar-width: thin; }
+.search input { position: absolute; left: 46px; top: 2px; width: 0; padding: 0.35rem 0; opacity: 0; transition: width 0.2s, opacity 0.2s, padding 0.2s; border-radius: 999px; z-index: 6; box-shadow: 0 6px 18px rgba(80, 70, 140, 0.2); }
+.search.open input { width: 170px; padding: 0.35rem 2rem 0.35rem 0.7rem; opacity: 1; }
+.search .clear { position: absolute; left: 190px; top: 4px; width: 28px; height: 28px; z-index: 7; border: none; box-shadow: none; background: transparent; }
+.avatars { list-style: none; margin: 0; padding: 0 0 4px; display: flex; flex-direction: column; gap: 8px; flex: 1; overflow-y: auto; overflow-x: hidden; width: 100%; align-items: center; scrollbar-width: none; }
+.avatars::-webkit-scrollbar { display: none; }
 .avatars li { position: relative; }
 .avatar { position: relative; width: 42px; height: 42px; border-radius: 50%; background: var(--machine); color: var(--ink); font-weight: 800; font-size: 0.85rem; padding: 0; display: grid; place-items: center; }
 .avatar.selected { outline: 3px solid var(--accent); outline-offset: 2px; }
@@ -63,7 +62,7 @@ label.small input { width: auto; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(60, 207, 154, 0.5); } 50% { box-shadow: 0 0 0 7px rgba(60, 207, 154, 0); } }
 [data-tip] { position: relative; }
 [data-tip]:hover::after, [data-tip]:focus-visible::after { content: attr(data-tip); position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%); background: var(--ink); color: #fff; font-size: 0.78rem; font-weight: 600; padding: 0.25rem 0.6rem; border-radius: 999px; white-space: nowrap; pointer-events: none; z-index: 5; }
-.pinned { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.45); }
+.pinned { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid rgba(45, 48, 88, 0.12); }
 
 /* panel */
 .panel { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 14px 16px 12px; overflow: hidden; }

@@ -111,7 +111,7 @@ export function wobbly(ctx: CanvasRenderingContext2D, pts: Pt[], seed: string, a
     const b = pts[(i + 1) % n];
     if (i === n) break;
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    const steps = Math.max(1, Math.round(len / 9));
+    const steps = Math.max(1, Math.round(len / 16));
     if (i === 0) ctx.moveTo(a[0], a[1]);
     for (let k = 1; k <= steps; k++) {
       const u = k / steps;
@@ -125,7 +125,18 @@ export function wobbly(ctx: CanvasRenderingContext2D, pts: Pt[], seed: string, a
 
 export interface Style { theme: Theme }
 
-/** Fill a face, lay the grain over it, and ink its outline. */
+/** The grain, once over the whole frame: cheaper than per face and reads
+ * the same (paper everywhere, like a print). */
+export function grainOverlay(ctx: CanvasRenderingContext2D, W: number, H: number, strength: number): void {
+  const grain = grainPattern(ctx, strength);
+  if (!grain) return;
+  ctx.save();
+  ctx.fillStyle = grain;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+/** Fill a face and ink its outline (the grain comes in one pass later). */
 export function face(ctx: CanvasRenderingContext2D, pts: Pt[], fill: string, st: Style, seed: string, outline = true): void {
   ctx.beginPath();
   ctx.moveTo(pts[0][0], pts[0][1]);
@@ -133,14 +144,6 @@ export function face(ctx: CanvasRenderingContext2D, pts: Pt[], fill: string, st:
   ctx.closePath();
   ctx.fillStyle = fill;
   ctx.fill();
-  const grain = grainPattern(ctx, st.theme.grain);
-  if (grain) {
-    ctx.save();
-    ctx.clip();
-    ctx.fillStyle = grain;
-    ctx.fill();
-    ctx.restore();
-  }
   if (outline && st.theme.edge.width > 0) {
     ctx.save();
     ctx.strokeStyle = st.theme.edge.color;
@@ -202,8 +205,6 @@ export function cylinder(ctx: CanvasRenderingContext2D, P: Project, s: number, c
   ctx.ellipse(tp[0], tp[1], rx, ry, 0, Math.PI, 0, true);
   ctx.closePath();
   ctx.fill();
-  const grain = grainPattern(ctx, st.theme.grain);
-  if (grain) { ctx.save(); ctx.clip(); ctx.fillStyle = grain; ctx.fill(); ctx.restore(); }
   ctx.strokeStyle = st.theme.edge.color;
   ctx.lineWidth = st.theme.edge.width;
   ctx.stroke();
@@ -227,39 +228,63 @@ export function hull(pts: Pt[]): Pt[] {
 
 // ---------- lettering ----------
 export interface TagOpts { font?: string; bg?: string; col?: string; k?: number; icon?: string; iconCol?: string }
-/** A white pill tag with a soft shadow; `k` scales it (pop-in). */
+const tagCache = new Map<string, HTMLCanvasElement>();
+const PAD = 18; // room for the shadow
+const TAG_DPR = 2;
+/** A white pill tag with a soft shadow; `k` scales it (pop-in). Drawn once
+ * per look into an offscreen canvas, then blitted: shadows are costly. */
 export function tag(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, st: Style, o: TagOpts = {}): void {
   const k = o.k ?? 1;
   if (k <= 0.01) return;
+  const font = o.font || '600 13px "Inter", system-ui, sans-serif';
+  const key = [text, font, o.bg, o.col, o.icon, o.iconCol, st.theme.tagBg, st.theme.ink, st.theme.edge.color, st.theme.edge.width].join("|");
+  let img = tagCache.get(key);
+  if (!img) {
+    if (tagCache.size > 400) tagCache.clear();
+    img = renderTag(text, st, o, font);
+    tagCache.set(key, img);
+  }
   ctx.save();
-  ctx.font = o.font || '600 13px "Inter", system-ui, sans-serif';
-  const fsz = parseInt((ctx.font.match(/(\d+)px/) || ["", "14"])[1]);
-  const w = ctx.measureText(text).width + (o.icon ? fsz * 2.6 : fsz * 1.4), h = Math.round(fsz * 1.75);
   ctx.translate(x, y);
   ctx.scale(k, k);
-  ctx.shadowColor = "rgba(80,70,140,0.22)";
-  ctx.shadowBlur = 14;
-  ctx.shadowOffsetY = 4;
-  ctx.fillStyle = o.bg || st.theme.tagBg;
-  ctx.beginPath();
-  ctx.roundRect(-w / 2, -h / 2, w, h, h / 2);
-  ctx.fill();
-  ctx.shadowColor = "transparent";
-  ctx.strokeStyle = st.theme.edge.color;
-  ctx.lineWidth = Math.max(0.6, st.theme.edge.width * 0.8);
-  ctx.stroke();
-  ctx.textBaseline = "middle";
-  if (o.icon) {
-    ctx.font = `${fsz}px system-ui, "Segoe UI Emoji", sans-serif`;
-    ctx.textAlign = "left";
-    ctx.fillStyle = o.iconCol || st.theme.ink;
-    ctx.fillText(o.icon, -w / 2 + fsz * 0.6, 1);
-    ctx.font = o.font || '600 13px "Inter", system-ui, sans-serif';
-  }
-  ctx.fillStyle = o.col || st.theme.ink;
-  ctx.textAlign = "center";
-  ctx.fillText(text, o.icon ? fsz * 0.6 : 0, 1);
+  ctx.drawImage(img, -img.width / (2 * TAG_DPR), -img.height / (2 * TAG_DPR) + 2, img.width / TAG_DPR, img.height / TAG_DPR);
   ctx.restore();
+}
+function renderTag(text: string, st: Style, o: TagOpts, font: string): HTMLCanvasElement {
+  const probe = document.createElement("canvas").getContext("2d")!;
+  probe.font = font;
+  const fsz = parseInt((font.match(/(\d+)px/) || ["", "14"])[1]);
+  const w = probe.measureText(text).width + (o.icon ? fsz * 2.6 : fsz * 1.4), h = Math.round(fsz * 1.75);
+  const c = document.createElement("canvas");
+  c.width = Math.ceil((w + PAD * 2) * TAG_DPR);
+  c.height = Math.ceil((h + PAD * 2) * TAG_DPR);
+  const g = c.getContext("2d")!;
+  g.scale(TAG_DPR, TAG_DPR);
+  g.translate(w / 2 + PAD, h / 2 + PAD - 2);
+  g.font = font;
+  g.shadowColor = "rgba(80,70,140,0.22)";
+  g.shadowBlur = 14;
+  g.shadowOffsetY = 4;
+  g.fillStyle = o.bg || st.theme.tagBg;
+  g.beginPath();
+  g.roundRect(-w / 2, -h / 2, w, h, h / 2);
+  g.fill();
+  g.shadowColor = "transparent";
+  g.strokeStyle = st.theme.edge.color;
+  g.lineWidth = Math.max(0.6, st.theme.edge.width * 0.8);
+  g.stroke();
+  g.textBaseline = "middle";
+  if (o.icon) {
+    g.font = `${fsz}px system-ui, "Segoe UI Emoji", sans-serif`;
+    g.textAlign = "left";
+    g.fillStyle = o.iconCol || st.theme.ink;
+    g.fillText(o.icon, -w / 2 + fsz * 0.6, 1);
+    g.font = font;
+  }
+  g.fillStyle = o.col || st.theme.ink;
+  g.textAlign = "center";
+  g.fillText(text, o.icon ? fsz * 0.6 : 0, 1);
+  return c;
 }
 
 export function numberTag(ctx: CanvasRenderingContext2D, x: number, y: number, num: string, label: string, st: Style, o: TagOpts = {}): void {
