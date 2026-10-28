@@ -134,3 +134,74 @@ export function drawSunlight(ctx: CanvasRenderingContext2D, tile: Pt[], t: numbe
   ctx.fillStyle = g; ctx.fillRect(minX - 300, 0, maxX - minX + 600, 4000);
   ctx.restore();
 }
+
+// ---------- the sky: the office floats on a tile among drifting clouds ----------
+export function drawSky(ctx: CanvasRenderingContext2D, W: number, H: number, theme: Theme): void {
+  const top = rgba(mix(theme.background[2], "#86bdf5", 0.6));
+  const mid = rgba(mix(theme.background[1], "#cfe5ff", 0.5));
+  const low = rgba(mix(theme.background[0], "#ffffff", 0.35));
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, top); g.addColorStop(0.55, mid); g.addColorStop(1, low);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  // a soft sun, high on the left
+  const sun = ctx.createRadialGradient(W * 0.18, H * 0.12, 10, W * 0.18, H * 0.12, Math.max(W, H) * 0.35);
+  sun.addColorStop(0, "rgba(255,246,214,0.75)"); sun.addColorStop(1, "rgba(255,246,214,0)");
+  ctx.fillStyle = sun;
+  ctx.fillRect(0, 0, W, H);
+}
+
+interface Cloud { x: number; y: number; w: number; h: number; speed: number; puffs: [number, number, number][] }
+const cloudCache = new Map<string, Cloud[]>();
+function clouds(layer: "far" | "near", W: number, H: number, minY: number): Cloud[] {
+  const key = `${layer}|${W}|${H}|${Math.round(minY)}`;
+  if (cloudCache.has(key)) return cloudCache.get(key)!;
+  const r = rng("clouds:" + layer);
+  const n = layer === "far" ? 9 : 5;
+  const out: Cloud[] = [];
+  for (let i = 0; i < n; i++) {
+    const w = layer === "far" ? 90 + r() * 120 : 220 + r() * 220;
+    const h = w * (0.28 + r() * 0.12);
+    const puffs: [number, number, number][] = [];
+    const k = 4 + Math.floor(r() * 3);
+    for (let j = 0; j < k; j++) puffs.push([(j / (k - 1) - 0.5) * w * 0.7, -r() * h * 0.45, h * (0.45 + r() * 0.4)]);
+    out.push({
+      x: r() * (W + w), y: layer === "far" ? r() * H * 0.55 : minY + r() * Math.max(60, H - minY), w, h,
+      speed: layer === "far" ? 4 + r() * 5 : 12 + r() * 10, puffs,
+    });
+  }
+  cloudCache.set(key, out);
+  return out;
+}
+function cloudPath(ctx: CanvasRenderingContext2D, c: Cloud, x: number, y: number): void {
+  ctx.beginPath();
+  for (const [dx, dy, pr] of c.puffs) { ctx.moveTo(x + dx + pr, y + dy); ctx.ellipse(x + dx, y + dy, pr, pr * 0.8, 0, 0, 7); }
+  ctx.moveTo(x + c.w * 0.45, y + c.h * 0.1);
+  ctx.ellipse(x, y + c.h * 0.1, c.w * 0.45, c.h * 0.45, 0, 0, 7);
+}
+/** Flat pastel clouds: a lit top, a shaded underside, the thin ink edge only
+ * around the silhouette (the edge is drawn first, the fill covers the rest).
+ * Near clouds stay below `minY`, under the island. */
+export function drawClouds(ctx: CanvasRenderingContext2D, W: number, H: number, t: number, theme: Theme, layer: "far" | "near", minY = 0): void {
+  const list = clouds(layer, W, H, minY);
+  const lit = layer === "far" ? rgba(mix(theme.background[1], "#ffffff", 0.75)) : "#ffffff";
+  const under = rgba(mix(theme.slab, "#ffffff", layer === "far" ? 0.78 : 0.6));
+  for (const c of list) {
+    const x = ((c.x + t * c.speed) % (W + c.w * 1.4)) - c.w * 0.7;
+    const y = c.y + Math.sin(t * 0.25 + c.x) * (layer === "far" ? 3 : 6);
+    if (theme.edge.width > 0) {
+      cloudPath(ctx, c, x, y);
+      ctx.strokeStyle = rgba(theme.edge.color, layer === "far" ? 0.22 : 0.45);
+      ctx.lineWidth = theme.edge.width * 2;
+      ctx.stroke();
+    }
+    cloudPath(ctx, c, x, y);
+    ctx.fillStyle = under;
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle = lit;
+    ctx.fillRect(x - c.w, y - c.h * 2, c.w * 2, c.h * 1.98);
+    ctx.restore();
+  }
+}

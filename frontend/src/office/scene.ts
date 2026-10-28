@@ -6,7 +6,7 @@
 import { C30, type Pt, type Project, type Style, arrow, box, clamp, ease, face, grainOverlay, hull, inside, lerp, mix, poly, rgba, rng, shade, tag } from "../iso/core";
 import type { Theme } from "../theme";
 import { drawButterflies, drawCat, drawDog, drawSparrow, stepAnimal } from "./animals";
-import { type Decor, drawAmbience, drawDecor, drawSunlight } from "./decor";
+import { type Decor, drawAmbience, drawClouds, drawDecor, drawSky, drawSunlight } from "./decor";
 import { Nav } from "./nav";
 import { drawPerson, look, step as stepPerson } from "./people";
 import { ROBOT_D, ROBOT_H, ROBOT_W, drawRobot } from "./robot";
@@ -114,22 +114,9 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
   const TH = 0.9;
   const hits: Hit[] = [];
 
-  // ---------- background ----------
-  const bg = ctx.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0, theme.background[0]);
-  bg.addColorStop(0.55, theme.background[1]);
-  bg.addColorStop(1, theme.background[2]);
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = rgba(theme.muted, 0.12);
-  for (let y = 18; y < H; y += 28) for (let x = 18 + ((y / 28) % 2) * 14; x < W; x += 28) ctx.fillRect(x, y, 2, 2);
-  {
-    const glow = ctx.createRadialGradient(cx, cy, 40, cx, cy, Math.max(W, H) * 0.55);
-    glow.addColorStop(0, "rgba(255,255,255,0.65)");
-    glow.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, W, H);
-  }
+  // ---------- the sky: the island floats among clouds ----------
+  drawSky(ctx, W, H, theme);
+  drawClouds(ctx, W, H, t, theme, "far");
   drawAmbience(ctx, W, H, t, theme);
   // long soft shadow under the slab: a few stacked, growing layers (a blur
   // filter every frame is far too slow)
@@ -361,6 +348,9 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
 
   objs.sort((a, b) => a.key - b.key);
   for (const o of objs) { ctx.save(); o.fn(); ctx.restore(); }
+  // near clouds drift past below the island, never over the floor
+  const slabBottom = Math.max(...[P(0, 0, -TH - 0.6), P(LX, 0, -TH - 0.6), P(LX, LY, -TH - 0.6), P(0, LY, -TH - 0.6)].map((p) => p[1]));
+  drawClouds(ctx, W, H, t, theme, "near", slabBottom + 20);
   grainOverlay(ctx, W, H, theme.grain);
 
   // a dashed connector from the master to the selected station
