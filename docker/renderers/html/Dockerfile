@@ -1,7 +1,7 @@
 # The html renderer: plays a self-contained HTML canvas animation in headless
 # Chromium frame by frame and records it, sound included, into
 # /project/artifacts/final-candidate.mp4. Workers never run this; the API does.
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core fonts-noto-color-emoji \
