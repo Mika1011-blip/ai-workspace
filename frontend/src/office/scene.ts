@@ -218,7 +218,7 @@ export function drawOffice(ctx: CanvasRenderingContext2D, W: number, H: number, 
     hits.push({ id: m.id, poly: [P(x, y, 0), P(x + w, y, 0), P(x + w, y + d, 0), P(x + w, y + d, h + 1.4), P(x, y + d, h + 1.4), P(x, y, h + 1.4)] });
     // the person: seated in front of the desk, or wherever they wandered
     const seat: Pt = [x + 1.0, y + d + 0.5];
-    const person = stepPerson(m.id, m.status, seat, lounge, nav, t, dt);
+    const person = stepPerson(m.id, m.status, seat, { x0: 1, y0: 1, x1: LX - 1, y1: LY - 1 }, nav, t, dt, lounge);
     add(x + w / 2 + y + d / 2, () => {
       ctx.save();
       const base = P(x + w / 2, y + d / 2, 0);

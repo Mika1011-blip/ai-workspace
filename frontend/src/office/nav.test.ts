@@ -45,6 +45,19 @@ test("people and animals walking around never stand inside a blocked cell", () =
   }
 });
 
+test("an idle worker roams the whole floor, not only the lounge", () => {
+  reset();
+  const nav = new Nav(20, 20);
+  const whole = { x0: 1, y0: 1, x1: 19, y1: 19 }, lounge = { x0: 1, y0: 14, x1: 19, y1: 19 };
+  let t = 0, outside = 0;
+  for (let i = 0; i < 6000; i++) {
+    const p = step("w", "idle", [10, 10], whole, nav, t, 0.05, lounge);
+    if (p.pos[1] < 13) outside++;
+    t += 0.05;
+  }
+  expect(outside).toBeGreaterThan(100);
+});
+
 test("a worker walks to the seat around obstacles when work arrives", () => {
   reset();
   const nav = office();
