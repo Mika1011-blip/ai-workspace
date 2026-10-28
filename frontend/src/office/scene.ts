@@ -32,7 +32,7 @@ export interface SceneModel {
 export const LAMP: Record<StationStatus, string> = { idle: "#9aa3ad", thinking: "#4f8ef7", using_tool: "#ffb020", waiting: "#3ccf9a", error: "#ff6b5b", stale: "#c8c8c8" };
 const SCREEN_WORD: Record<StationStatus, string> = { idle: "zZ", thinking: "", using_tool: "", waiting: "?", error: "✖", stale: "no signal" };
 
-export const OWNER_LINE = "Mika's media producer office";
+export const OWNER_LINE = "Mika's Media Production Office";
 export const CREDIT_LINE = "created by mika1011-blip.github.io";
 
 /** Where everything sits on the tile, in tile units. */
