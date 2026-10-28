@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Worker, WorkerState } from "../api";
 import { shownStatus } from "../hooks/useLiveState";
 import { STATUS_LABEL } from "./StatusBadge";
@@ -16,13 +16,29 @@ export default function Sidebar({ workers, states, selected, onPick, onAdd, onGa
   mode: string | null;
 }) {
   const [filter, setFilter] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  // the field stays unfolded while the mouse is over it, while it has focus,
+  // and while it holds text; the mouse leaving does not close it mid-typing
+  const open = hover || focus || filter.length > 0;
   const shown = workers.filter((w) => w.name.includes(filter.trim().toLowerCase()));
   return (
     <nav className="strip" aria-label="Workers">
-      <div className={`search ${searchOpen || filter ? "open" : ""}`} onMouseEnter={() => setSearchOpen(true)} onMouseLeave={() => setSearchOpen(false)}>
-        <button type="button" className="icon" aria-label="Filter workers" onClick={() => setSearchOpen((o) => !o)}>🔍</button>
-        <input aria-label="Filter by name" placeholder="filter…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+      <div className={`search ${open ? "open" : ""}`} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+        <button type="button" className="icon" aria-label="Filter workers" onClick={() => { setFocus(true); setTimeout(() => input.current?.focus(), 0); }}>🔍</button>
+        <input
+          ref={input}
+          aria-label="Filter by name"
+          placeholder="filter…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          onFocus={() => setFocus(true)}
+          onBlur={() => setFocus(false)}
+          onKeyDown={(e) => { if (e.key === "Escape") { setFilter(""); input.current?.blur(); } }}
+          tabIndex={open ? 0 : -1}
+        />
+        {filter && <button type="button" className="icon clear" aria-label="Clear filter" onClick={() => { setFilter(""); input.current?.focus(); }}>×</button>}
       </div>
       <ul className="avatars">
         {shown.map((w) => {
