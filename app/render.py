@@ -55,6 +55,16 @@ def _sidecar(project_dir: Path, name: str, kind: str, stage: str, description: s
     )
 
 
+def has_input(project_dir: Path, renderer: str) -> bool:
+    """Is there something for this renderer to render? Every renderer reads
+    artifacts/07-render/; the html one also takes artifacts/explainer.html
+    (what the style-explainer writes)."""
+    artifacts = project_dir / "artifacts"
+    if renderer == "html":
+        return any((artifacts / "07-render").glob("*.html")) or (artifacts / "explainer.html").is_file()
+    return (artifacts / "07-render").is_dir()
+
+
 class Renderer:
     def __init__(self, run: RunFn = default_run):
         self.run = run

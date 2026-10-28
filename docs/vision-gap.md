@@ -13,7 +13,7 @@ and what was decided.*
 | Projects on the table, media with descriptions, save / clean | built — `projects/<slug>/`, sidecars, `/gallery`, export, delete with confirm |
 | Every run writes a tagged JSON record; stats from records | records + index + `GET /runs` built; Stats tab not yet |
 | Messaging by session id; crew/app wall | built, proven live |
-| Code-made media | ffmpeg video built; SVG/HTML→PNG and Remotion not yet |
+| Code-made media | ffmpeg video, SVG images and HTML canvas animations (html renderer) built; Remotion not yet |
 | Live state (`/workers/state`), thought bubbles, SSE | built — `/workers/state` and `GET /events` (SSE); bubbles are the page's job |
 | Sidebar · worker panel (Chat / Stats / Settings) · 3D floor | built — panel on the workers page (team list with live status, Chat / Stats / Settings) and the 3D floor at `/factory` on real state |
 | Per-worker toolkit from a vetted catalog | built — `catalog.json` + `worker_templates/skills/` are the catalog; `workers/<w>/toolkit.json` the toolkit (`/catalog`, `/workers/{w}/toolkit`, MCP `set_toolkit`) |
@@ -62,7 +62,7 @@ grants are per spawn only; the persistent layer is the next management work.
 
 | | Decision |
 |---|---|
-| Media engines | **All code-made.** Claude for text; SVG→PNG for images (built, inside the ffmpeg image; HTML→PNG not yet); ffmpeg now, Remotion later for video. No generator APIs, no keys. |
+| Media engines | **All code-made.** Claude for text; SVG→PNG for images (built, inside the ffmpeg image); ffmpeg and the html renderer (canvas animations recorded in headless Chromium) for video, Remotion later. No generator APIs, no keys. |
 | Save all | **Zip download** in the gallery (built: `GET /projects/{slug}/download`); `export_project` to a host folder stays. |
 | Workers persist? | **Yes, a fixed team.** The master creates one only when nobody fits, never retires one on its own. |
 | Chat with a worker during a project | **Yes** — the Chat tab, on top of message forwarding (SDK runner). The master is reachable when `may_talk_to` includes it. |

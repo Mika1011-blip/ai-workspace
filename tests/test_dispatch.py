@@ -158,6 +158,24 @@ class TestRenderProject:
         assert (folder / "final.mp4").is_file() and (folder / "preview.jpg").is_file()
         assert client.get("/projects").json()[0]["has_final"] is True
 
+    def test_html_renderer_takes_the_explainer_page(self, client, projects_dir):
+        make_project(client)
+        (projects_dir / "first-reel" / "artifacts" / "explainer.html").write_text("<canvas></canvas>", encoding="utf-8")
+
+        res = client.post("/projects/first-reel/render", params={"renderer": "html"})
+
+        assert res.status_code == 200, res.json()
+        m = res.json()
+        assert m["renderer"] == "html" and m["status"] == "published"
+        assert manifest(projects_dir)["renderer"] == "html"
+
+    def test_html_renderer_with_nothing_to_play_is_409_and_bad_renderer_is_400(self, client):
+        make_project(client)
+
+        res = client.post("/projects/first-reel/render", params={"renderer": "html"})
+        assert res.status_code == 409 and "explainer.html" in res.json()["detail"]
+        assert client.post("/projects/first-reel/render", params={"renderer": "flash"}).status_code == 400
+
     def test_nothing_to_render_is_409(self, client):
         make_project(client)
 

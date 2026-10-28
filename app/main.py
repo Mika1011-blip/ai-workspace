@@ -1045,14 +1045,23 @@ def create_app(
         return Session(**result)
 
     @app.post("/projects/{slug}/render")
-    def render_project(slug: str, x_session_token: str | None = Header(default=None)) -> dict:
-        """Render and publish a project from whatever is in artifacts/07-render/
-        (dispatch mode's counterpart of the pipeline's render and publish
-        steps). Both steps are logged as `api` hand-offs; a failure leaves
-        the project `failed` with the container's last line as the error."""
+    def render_project(
+        slug: str, renderer_name: str | None = Query(default=None, alias="renderer"),
+        x_session_token: str | None = Header(default=None),
+    ) -> dict:
+        """Render and publish a project (dispatch mode's counterpart of the
+        pipeline's render and publish steps). `?renderer=` overrides the
+        project's renderer for this render and is saved on the project.
+        Both steps are logged as `api` hand-offs; a failure leaves the
+        project `failed` with the container's last line as the error."""
         folder, manifest = project_or_404(slug)
-        if not (folder / "artifacts" / "07-render").is_dir():
-            raise HTTPException(status_code=409, detail="nothing_to_render: artifacts/07-render/ is missing")
+        if renderer_name is not None:
+            if renderer_name not in projects.RENDERERS:
+                raise HTTPException(status_code=400, detail=f"bad_renderer: one of {sorted(projects.RENDERERS)}")
+            manifest["renderer"] = renderer_name
+        if not render.has_input(folder, manifest["renderer"]):
+            hint = "artifacts/07-render/*.html or artifacts/explainer.html" if manifest["renderer"] == "html" else "artifacts/07-render/"
+            raise HTTPException(status_code=409, detail=f"nothing_to_render: {hint} is missing")
         session = authenticate(sessions_db_path, x_session_token)
         by = session["session_id"] if session else "app-master"
         now = lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731

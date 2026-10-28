@@ -12,7 +12,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-RENDERERS = {"remotion", "manim", "ffmpeg"}
+RENDERERS = {"remotion", "manim", "ffmpeg", "html"}
 MODES = {"auto", "guided"}
 STATUSES = {"created", "running", "awaiting_approval", "needs_input", "failed", "published"}
 MANIFEST = "project.json"

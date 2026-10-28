@@ -397,15 +397,19 @@ def test_assign_task_posts_to_the_project_with_token(monkeypatch):
 def test_render_project_posts_with_a_long_timeout(monkeypatch):
     calls = []
 
-    def fake_post(url, headers, timeout):
-        calls.append((url, headers, timeout))
+    def fake_post(url, params, headers, timeout):
+        calls.append((url, params, headers, timeout))
         return FakeResponse(200, {"slug": "first-reel", "status": "published"})
 
     monkeypatch.setattr(ws.httpx, "post", fake_post)
 
     result = ws.render_project("first-reel")
+    ws.render_project("first-reel", renderer="html")
 
-    assert calls == [(f"{ws.API_BASE_URL}/projects/first-reel/render", {}, 900)]
+    assert calls == [
+        (f"{ws.API_BASE_URL}/projects/first-reel/render", None, {}, 900),
+        (f"{ws.API_BASE_URL}/projects/first-reel/render", {"renderer": "html"}, {}, 900),
+    ]
     assert result["status"] == "published"
 
 

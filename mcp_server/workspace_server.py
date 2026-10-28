@@ -269,16 +269,24 @@ def assign_task(project: str, worker: str, task: str, tools: list[str] | None = 
 
 
 @mcp.tool
-def render_project(project: str) -> dict:
-    """Render and publish a project from artifacts/07-render/ (the renderer
-    worker must have written it first): the API runs the renderer image,
+def render_project(project: str, renderer: str | None = None) -> dict:
+    """Render and publish a project: the API runs the renderer image,
     extracts frames, and publishes a browser-safe final.mp4 + preview.jpg.
+    `renderer` overrides the project's renderer: "ffmpeg" renders the
+    plan in artifacts/07-render/ (still shots with captions); "html"
+    records an HTML canvas animation (artifacts/explainer.html or
+    artifacts/07-render/*.html, with window.seek / window.DURATION, sound
+    from SOUND.renderOffline) -- use it for the style-explainer's work.
     Returns the manifest, now `published`. Calls POST
     /projects/{project}/render; raises an error if there is nothing to
     render or the render fails (the project is then `failed`, with the
     reason).
     """
-    response = httpx.post(f"{API_BASE_URL}/projects/{project}/render", headers=_auth(), timeout=900)
+    response = httpx.post(
+        f"{API_BASE_URL}/projects/{project}/render",
+        params={"renderer": renderer} if renderer else None,
+        headers=_auth(), timeout=900,
+    )
     response.raise_for_status()
     return response.json()
 
